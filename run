@@ -1,0 +1,3 @@
+#!/bin/bash
+# Wrapper to always run the pipeline with bash (avoids zsh "number expected")
+exec /bin/bash "$(dirname "$0")/pipeline/run_all.sh" "$@"
