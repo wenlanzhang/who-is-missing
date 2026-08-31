@@ -90,41 +90,72 @@ f0b <- function(country = "ZAF", city = "CapeTown") {
 
   m <- glm(published ~ z_grdi + z_lwp, data = g, family = binomial())
 
+  # Cluster-robust covariance on zoom-10 quadkey blocks, matching the inference
+  # used everywhere else. Publication is spatially autocorrelated, so the naive
+  # glm interval is slightly too narrow.
+  g$blk10 <- substr(g$quadkey, 1, 10)
+  V <- if (requireNamespace("sandwich", quietly = TRUE)) {
+    sandwich::vcovCL(m, cluster = g$blk10)
+  } else vcov(m)
+
   mu <- mean(g$poverty_mean); sdv <- sd(g$poverty_mean)
   grid <- tibble::tibble(
     poverty_mean = seq(min(g$poverty_mean), max(g$poverty_mean), length.out = 300)) |>
     mutate(z_grdi = (poverty_mean - mu) / sdv,
-           z_lwp  = mean(g$z_lwp))          # population held at the city average
-  pr <- predict(m, newdata = grid, type = "link", se.fit = TRUE)
-  grid <- grid |> mutate(fit = plogis(pr$fit),
-                         lo  = plogis(pr$fit - 1.96 * pr$se.fit),
-                         hi  = plogis(pr$fit + 1.96 * pr$se.fit))
+           z_lwp  = 0)                      # population held at the city average
+  Xn  <- model.matrix(~ z_grdi + z_lwp, data = grid)
+  eta <- as.vector(Xn %*% coef(m))
+  se  <- sqrt(rowSums((Xn %*% V) * Xn))
+  grid <- grid |> mutate(fit = plogis(eta),
+                         lo  = plogis(eta - 1.96 * se),
+                         hi  = plogis(eta + 1.96 * se))
+
+  # The model's prediction using each tile's *own* population. This is what the
+  # model actually says about the data, and it tracks the observed rates closely.
+  g$p_actual <- predict(m, type = "response")
 
   obs <- g |> group_by(decile) |>
     summarise(grdi = median(poverty_mean), rate = mean(published), .groups = "drop")
 
   lim <- range(g$poverty_mean)
   p_out <- ggplot() +
+    # every tile, as its raw 0/1 outcome
+    geom_jitter(data = g, aes(poverty_mean, 100 * published, colour = poverty_mean),
+                height = 3.2, width = 0, size = 0.7, alpha = 0.35) +
     geom_ribbon(data = grid, aes(poverty_mean, ymin = 100 * lo, ymax = 100 * hi),
                 fill = OLIVE, alpha = 0.16) +
+    geom_smooth(data = g, aes(poverty_mean, 100 * p_actual), method = "loess",
+                span = 0.6, se = FALSE, colour = ROSE, linewidth = 0.9,
+                linetype = "22", formula = y ~ x) +
     geom_line(data = grid, aes(poverty_mean, 100 * fit), colour = INK, linewidth = 1.1) +
     geom_point(data = obs, aes(grdi, 100 * rate, fill = grdi), shape = 21,
-               size = 3.4, colour = "white", stroke = 0.6) +
+               size = 3.6, colour = "white", stroke = 0.7) +
+    scale_colour_gradientn(colours = ARMY, limits = lim, guide = "none") +
     scale_fill_gradientn(colours = ARMY, limits = lim, guide = "none") +
-    scale_y_continuous(limits = c(-2, 104), expand = c(0, 0),
-                       labels = function(v) paste0(v, "%")) +
+    scale_y_continuous(limits = c(-8, 108), breaks = seq(0, 100, 25),
+                       expand = c(0, 0), labels = function(v) paste0(v, "%")) +
+    # Placed where each band is sparse: almost no deprived tiles are published,
+    # and almost no affluent tiles are missing, so the corners are free.
+    annotate("text", x = lim[2], y = 105, hjust = 1, size = 3.0, colour = GREY,
+             label = "one faint dot = one tile Meta published") +
+    annotate("text", x = lim[1], y = -5, hjust = 0, size = 3.0, colour = GREY,
+             label = "one faint dot = one tile Meta did not publish") +
     labs(title = sprintf("%s: how likely is Meta to publish a neighbourhood?",
                          nice_city(city)),
-         subtitle = "Fitted probability for a tile of average population, with the observed decile rates overlaid",
+         subtitle = paste("Solid = same population everywhere · dashed = each tile's own",
+                          "population · dots = observed rate per tenth"),
          x = "Deprivation (GRDI)  →  more deprived",
          y = "Probability Meta publishes the tile",
          caption = paste0(
-           "Logistic fit on ", nrow(g), " tiles, controlling for log population. ",
-           "Line = fitted probability holding population at the city average;\n",
-           "band = 95% interval; dots = the share actually published in each ",
-           "deprivation tenth, coloured by deprivation.")) +
+           "All ", nrow(g), " eligible tiles shown. Logistic fit on deprivation and log ",
+           "population; band is a 95% interval with errors clustered on ~39 km blocks.\n",
+           "The dashed line uses each tile's real population and tracks the observed rates. ",
+           "The solid line asks a different question — what if every\nneighbourhood had the ",
+           "city's average population? It sits higher because deprived tiles are also far ",
+           "sparser (median 28,238 residents in the least\ndeprived tenth, 13 in the most). ",
+           "That gap is how much of the coverage drop is explained by fewer people.")) +
     theme_ar()
-  save_fig(p_out, "F0b_capetown_fitted_probability.png", 8.0, 5.2)
+  save_fig(p_out, "F0b_capetown_fitted_probability.png", 9.0, 5.8)
 }
 
 # ------------------------------------------------------------ F1 dose-response

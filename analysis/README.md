@@ -474,13 +474,19 @@ consequences. Equations are given in full in §2 and §4; the notes below are wh
 
 8. **`F0_capetown_case_study.png`** — full bleed. Same peripheral ring in rose in both maps.
    100% of deciles 1–3, 3% of decile 10; 231 of 690 tiles missing. Name the places.
-   **`F0b_capetown_fitted_probability.png`** is the same city as a fitted curve: the
-   probability Meta publishes a tile of *average population* across the deprivation range,
-   with the observed decile rates overlaid. Use it instead of quoting an odds ratio — it is
-   the same model, in units an audience can read. Note the dots sit below the line in the
-   middle deciles: the line holds population at the city average, while the real deprived
-   tiles are also sparser, so the raw drop is steeper than the population-adjusted one.
-   That gap between dots and line *is* the density channel, drawn.
+   **`F0b_capetown_fitted_probability.png`** is the same city as a fitted curve, and is the
+   slide to use instead of quoting an odds ratio. It shows all 690 tiles as their raw 0/1
+   outcome, the observed rate per deprivation tenth, and two model lines:
+
+   - **dashed** — each tile's own population. This is what the model says about the data,
+     and it tracks the observed rates within 2.4 pp on average.
+   - **solid** — population held at the city average. A counterfactual: what if every
+     neighbourhood had the same number of residents?
+
+   The solid line sits above the dots because deprived tiles are also far sparser — median
+   28,238 residents in the least deprived tenth against 13 in the most. **The gap between
+   the two lines is the density channel, drawn**, and the fact that the solid line still
+   falls from 100% to ~24% is the part deprivation explains on its own.
 
 **All cities (S9–S11, ~3 min)**
 
