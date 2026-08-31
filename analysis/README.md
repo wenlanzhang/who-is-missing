@@ -187,20 +187,49 @@ perfectly separated cities would be inconsistent. Where settlement type does rea
 §5.5(f), where the model is estimated *within* each class.
 
 **Dose-response (`F1`).** Meta publishes **100%** of tiles in the least deprived decile and
-**21%** in the most deprived. Holding population fixed: **100% → 56%**.
+**21%** in the most deprived. Holding population fixed: **99% → 46%**.
+
+*(A note on "holding population fixed". `z_logWP` is standardised, so its mean is 0 but the
+mean of its **square** is 1.0. Setting both to their own means — the usual "predict at the
+covariate means" recipe — describes a tile whose population is average and whose squared
+deviation is 1, which is no tile at all, and it lifts the most deprived decile by 10 points.
+The squared term is therefore set to the square of the held value, i.e. 0. This is also what
+makes this line and `F1b`'s pooled curve the same object.)*
 
 **`F1b` is the bridge from one city to all of them.** The same model fitted separately to
 each of the 14 cities, drawn on a common axis, with the pooled fixed-effects curve on top.
 It exists because the talk otherwise jumps from a single-city figure to a pooled estimate
-with no visible connection. It also shows something the pooled number hides: **cities differ
-enormously in how much of their gap survives equalising population.** In Mexico City, Puebla
-and Nairobi the equal-population curve stays near 100% — their coverage gap is almost
-entirely about how few people live in deprived tiles. In Cuenca, Guayaquil and Mombasa it
-collapses below 10% — theirs is about deprivation. Cape Town sits in between. The pooled
-line is the average of that range, not a description of any one city.
+with no visible connection.
+
+It also settles a question `F2` raises: if every city agrees, why do the curves look so
+different? Because **the odds ratios are homogeneous and the starting points are not.** The
+median city OR is **0.132** against a pooled **0.123**, and 8 of 14 cities sit above the
+pooled value — the slope is close to common. What differs is what that slope does on the
+probability scale. An eight-fold reduction in odds applied to a city already publishing
+99.9% of its tiles is invisible; the same reduction applied to a city at 60% collapses it.
+Puebla's curve is one of the flattest on the plot and its OR is **0.069**, steeper than
+pooled. Read `F1b` as *same bias everywhere, very different visible damage* — which is what
+sets up the operational section.
+
+Two things to be careful about when reading the figure:
+
+- **Each curve spans only that city's own GRDI range**, so the lines stop at different
+  places and comparing line *ends* compares cities at different deprivation levels. Mombasa
+  looks like the steepest collapse only because its tiles reach +2 SD; at **+1.13 SD**, the
+  last point where all 14 cities are still present, Mombasa is at **82%**. At that common
+  point 6 cities are still above 90% and 4 are below 50%. The genuine collapses are Cuenca
+  (1.5%), Guayaquil (4.7%) and Zamboanga (24.8%).
+- **The pooled line is a tile-weighted average**, so it sits below most of the thin lines —
+  at z = 0 it is at 74% while 11 of 14 city curves are above it. This is correct, not a
+  drawing error: Guayaquil (806 tiles) and Cuenca (576) are 29% of the 4,700 and are two of
+  the three steepest, while the flat cities are smaller. Right of +1.13 SD the pooled line
+  extrapolates every city past its own support, so it is drawn dashed there.
 
 **Every city agrees (`F2`).** 14/14 estimable cities have OR < 1 (sign test p = 6.1e-05);
-12 significant at 5%.
+10 significant at 5%. The per-city fits use the headline M3 right-hand side minus the city
+fixed effect, so they match the curves in `F1b` — but note that with 73–806 tiles per city
+the quadratic costs power, and per-city intervals are wide. The sign test, not the
+individual p-values, is the claim here.
 
 **Inference is not doing the work.** The M2 point estimate is 0.092 under every clustering
 assumption; only the interval moves.
@@ -257,7 +286,7 @@ Four pushbacks, and one honest concession:
    Density explains part of the raw association, not most of it.
 2. **M7** residualises GRDI on population, population² and settlement class, keeping only
    the orthogonal signal: OR = 0.362, p = 2e-16.
-3. The adjusted dose-response still falls 100% → 59%.
+3. The adjusted dose-response still falls 99% → 46%.
 4. Meta's threshold is *declared* to be a count threshold. Finding a residual deprivation
    effect after conditioning on count is the interesting part, not a confound.
 5. **Concession (§5.4):** the permutation test puts a number on the density channel —
@@ -458,8 +487,8 @@ Kept here deliberately. Several of these are more informative than the things th
 
 ## 9. Suggested slide order
 
-Fourteen slides for a 15-minute talk. Background → data → method → one city → all cities →
-consequences. Equations are given in full in §2 and §4; the notes below are what each one
+Fifteen slides for a 15-minute talk. Background → data → method → one city → **bridge** →
+all cities → consequences. Equations are given in full in §2 and §4; the notes below are what each one
 *means* out loud.
 
 **Background (S1–S4, ~3 min)**
@@ -506,24 +535,36 @@ consequences. Equations are given in full in §2 and §4; the notes below are wh
    the two lines is the density channel, drawn**, and the fact that the solid line still
    falls from 100% to ~24% is the part deprivation explains on its own.
 
-**All cities (S9–S11, ~3 min)**
+**All cities (S9–S12, ~3.5 min)**
 
-9. **`F1`** — 100% → 21% raw; 100% → 59% holding population and settlement type fixed.
-   exp(β) = 0.125 [0.076, 0.206]. The olive line is the defence against "fewer people,
-   fewer users".
-10. **`F2`** — 14/14 cities below 1.0, 12 significant. Robustness without a table.
-11. **`F3`** — the contribution sentence: *among the people it counts, Meta allocates them
-    correctly; it just counts far fewer deprived places.* Reconciles S6 with S9.
+9. **`F1b_city_curves_bridge.png`** — the bridge, and the only slide where the audience sees
+   one city become fourteen. Cape Town's rose curve from S8 is still there; the thin olive
+   lines are the *same model refitted* on each of the other thirteen, and the ink line is the
+   pooled fit. Say: **"same model, once per city — and the odds ratio is much the same
+   everywhere: median city 0.13 against a pooled 0.12."** Then the point the pooled number
+   hides: what that identical slope *does* depends on where a city starts. Puebla and Nairobi
+   stay pinned near 100% (Puebla's OR is 0.069 — steeper than pooled — it is just starting
+   from 99.9%); Cuenca and Guayaquil fall below 5%. One beat, ~45 seconds, then move on.
+   Do **not** invite endpoint comparisons — the lines stop where each city's tiles stop.
+10. **`F1`** — 100% → 21% raw; 99% → 46% holding population fixed (population and its
+    square, M3; settlement class is deliberately not in this line — see §4).
+    exp(β) = 0.123 [0.075, 0.200]. The olive line is the defence against "fewer people,
+    fewer users".
+11. **`F2`** — 14/14 cities below 1.0, 10 significant. Robustness without a table. Follows
+    naturally from S9: the audience has already seen the fourteen curves, this is the same
+    fourteen as intervals.
+12. **`F3`** — the contribution sentence: *among the people it counts, Meta allocates them
+    correctly; it just counts far fewer deprived places.* Reconciles S6 with S10.
 
-**Consequences (S12–S14, ~3 min)**
+**Consequences (S13–S15, ~3 min)**
 
-12. **`F5`** — Moran's I median 0.57, significant in 14/18. Contiguous dropout deletes a
+13. **`F5`** — Moran's I median 0.57, significant in 14/18. Contiguous dropout deletes a
     neighbourhood; scattered dropout would average out.
-13. **What it costs** — 98.9% vs 24.3% coverage (74.7 pp gap); 1,790 of 4,999 tiles
+14. **What it costs** — 98.9% vs 24.3% coverage (74.7 pp gap); 1,790 of 4,999 tiles
     (~10,100 km²); 251,293 people (0.5%) at deprivation 47.0 vs 25.4; 39% targeting recall
     at a 10% budget. Say the 0.5% out loud — it is small *because* those tiles are sparse,
     which is why the population-weighted test found nothing.
-14. **Takeaway and caveats** — population-representative but geographically censored;
+15. **Takeaway and caveats** — population-representative but geographically censored;
     blindness is peri-urban and rural; association not causation, ~12% of the gradient is
     density structure, GRDI and WorldPop share satellite inputs.
 

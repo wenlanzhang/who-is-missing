@@ -223,8 +223,17 @@ def adjusted_dose_response(d: pd.DataFrame) -> pd.DataFrame:
 
     The raw gradient partly reflects that deprived tiles hold fewer people, and
     Meta's privacy threshold is a count threshold. The adjusted column is the
-    model-predicted publication probability from M3 with log WorldPop and its
-    square set to the overall mean, so only deprivation varies.
+    model-predicted publication probability from M3 with log WorldPop set to the
+    overall mean, so only deprivation varies.
+
+    The squared term is set to the *square of the held value*, not to its own
+    mean. Setting every covariate to its sample mean is the usual recipe but it
+    is wrong for a polynomial: z_log_wp is standardised, so its mean is 0 while
+    the mean of its square is 1.0, and holding both at their means describes a
+    tile whose population is average and whose squared deviation is 1 — no tile
+    at all. It is worth 10 points at the most deprived decile. This is also what
+    makes the curve agree with pooled_curve() in 05_city_models.py, which holds
+    both at 0.
 
     Settlement class is deliberately not in this model. Holding it at observed
     values while calling the line "settlement type held fixed" would have been
@@ -242,8 +251,9 @@ def adjusted_dose_response(d: pd.DataFrame) -> pd.DataFrame:
 
     X = design(sub, cols)
     Xc = X.copy()
-    for c in ["z_log_wp", "z_log_wp2"]:
-        Xc[c] = sub[c].mean()
+    held = sub["z_log_wp"].mean()
+    Xc["z_log_wp"] = held
+    Xc["z_log_wp2"] = held ** 2
     sub["p_adj"] = res.predict(Xc.to_numpy())
 
     g = sub.groupby("grdi_decile").agg(
@@ -285,8 +295,17 @@ def cluster_bandwidths(d: pd.DataFrame) -> pd.DataFrame:
 
 
 def by_city(d: pd.DataFrame) -> pd.DataFrame:
-    """One logit per city. The sign test across cities is the robustness claim."""
+    """One logit per city. The sign test across cities is the robustness claim.
+
+    Uses the headline M3 right-hand side minus the city fixed effect, which a
+    single-city fit cannot have, so this matches the per-city curves drawn in
+    analysis/05_city_models.py. They were previously on different
+    specifications, which meant F2 and F1b reported different odds ratios for
+    the same city.
+    """
     rows = []
+    d = d.copy()
+    d["z_log_wp2"] = d["z_log_wp"] ** 2
     for city, g in d.groupby("city"):
         row = {"city": city, "country": g.country.iloc[0], "n": len(g),
                "C_c": g.published.mean(), "OR": np.nan, "OR_lo": np.nan,
@@ -297,7 +316,8 @@ def by_city(d: pd.DataFrame) -> pd.DataFrame:
             row["note"] = "too few tiles"
         else:
             try:
-                X = sm.add_constant(g[["z_poverty_mean", "z_log_wp"]].astype(float))
+                X = sm.add_constant(
+                    g[["z_poverty_mean", "z_log_wp", "z_log_wp2"]].astype(float))
                 res = sm.Logit(g.published.to_numpy(), X.to_numpy()).fit(
                     disp=0, method="bfgs", maxiter=500)
                 b, se = res.params[1], res.bse[1]

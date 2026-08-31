@@ -6,7 +6,7 @@
 
 suppressPackageStartupMessages({
   library(sf); library(dplyr); library(tidyr); library(ggplot2)
-  library(patchwork); library(forcats); library(readr)
+  library(patchwork); library(forcats); library(readr); library(ggrepel)
 })
 source("analysis/R/theme_armyrose.R")
 
@@ -123,43 +123,108 @@ f1b <- function(highlight = "CapeTown") {
   curves <- rd("A5_city_curves.csv")
   pooled <- rd("A5_pooled_curve.csv")
 
-  # Label each line near its right-hand end, pushed apart if they end close
-  # together so the two annotations never overlap.
+  # Every city's curve is drawn only over the deprivation range it actually has
+  # tiles in, so the lines stop at different places. z_common is the last point
+  # where all 14 are still present. To its right cities leave the comparison one
+  # by one, and the pooled line — an average over every tile at every grid point —
+  # is extrapolating city fixed effects past their own data, so it is dashed there.
+  z_common <- min(tapply(curves$z_grdi, curves$city, max))
+
+  ends <- curves |> group_by(city) |> filter(z_grdi == max(z_grdi)) |> ungroup()
+
+  # Where each city sits at that common point. Reading the line ends instead
+  # would compare cities at different deprivation levels: Mombasa looks like the
+  # steepest collapse only because its tiles reach +2 SD.
+  at_common <- curves |> group_by(city) |>
+    summarise(f = approx(z_grdi, fit, xout = z_common)$y, .groups = "drop")
+  n_high <- sum(at_common$f >= 0.9)
+  n_low  <- sum(at_common$f <= 0.5)
+
+  # Every line is named. The panel is extended to the right to make a label
+  # gutter, and ggrepel moves labels in y only, drawing a leader when it has to
+  # shift one far from its line — so a label never sits on top of a curve.
+  # Colours stay on the deck's convention: olive = a city, rose = the highlighted
+  # city, ink = pooled.
+  x_pool <- max(pooled$z_grdi)
   end_pool <- 100 * pooled$fit[nrow(pooled)]
-  hl       <- curves |> filter(city == highlight) |> arrange(z_grdi)
-  end_city <- 100 * hl$fit[nrow(hl)]
-  gap      <- if (abs(end_pool - end_city) < 12) 12 else 6
-  y_pool   <- end_pool + gap
-  y_city   <- end_city - gap
+  lab <- bind_rows(
+    ends |> transmute(x = z_grdi, y = 100 * fit, nm = nice_city(city),
+                      col = ifelse(city == highlight, ROSE, OLIVE),
+                      fw  = ifelse(city == highlight, "bold", "plain")),
+    tibble(x = x_pool, y = end_pool, nm = "pooled, 14 cities", col = INK, fw = "bold"))
+
+  # ggrepel avoids other labels and its own points, but knows nothing about the
+  # curves — which is how a label ends up sitting on a line it does not belong
+  # to. Feeding it the curves as empty-label points makes them obstacles too.
+  all_pts <- bind_rows(curves |> select(x = z_grdi, y = fit),
+                       pooled |> select(x = z_grdi, y = fit)) |> mutate(y = 100 * y)
+  obstacles <- all_pts |> slice(seq(1, n(), by = 4)) |>
+    transmute(x, y, nm = "", col = NA_character_, fw = "plain")
+
+  # Labels may only move vertically (below), so the horizontal offset has to be
+  # right first time: push each one far enough to clear any curve crossing its
+  # own horizontal band. Without this a label whose line ends just left of a
+  # steep curve — Kandy against Cape Town — has nowhere to go.
+  BAND  <- 3.6   # half-height of a label, in percentage points
+  REACH <- 0.95  # how far right it is worth looking, in SD
+  nudge <- vapply(seq_len(nrow(lab)), function(i) {
+    hit <- all_pts[abs(all_pts$y - lab$y[i]) < BAND &
+                   all_pts$x > lab$x[i] & all_pts$x < lab$x[i] + REACH, ]
+    if (!nrow(hit)) 0.10 else min(REACH, max(hit$x) - lab$x[i] + 0.10)
+  }, numeric(1))
 
   p <- ggplot() +
+    geom_vline(xintercept = z_common, colour = RULE, linetype = "22", linewidth = 0.4) +
     geom_ribbon(data = pooled, aes(z_grdi, ymin = 100 * lo, ymax = 100 * hi),
                 fill = INK, alpha = 0.10) +
     geom_line(data = curves |> filter(city != highlight),
               aes(z_grdi, 100 * fit, group = city), colour = OLIVE_MID,
               linewidth = 0.55, alpha = 0.75) +
+    geom_point(data = ends |> filter(city != highlight),
+               aes(z_grdi, 100 * fit), colour = OLIVE_MID, size = 1.15, alpha = 0.9) +
     geom_line(data = curves |> filter(city == highlight),
               aes(z_grdi, 100 * fit), colour = ROSE, linewidth = 1.3) +
-    geom_line(data = pooled, aes(z_grdi, 100 * fit), colour = INK, linewidth = 1.4) +
-    annotate("text", x = 2.45, y = y_pool, hjust = 1, size = 3.3, colour = INK,
-             fontface = "bold", label = "pooled, 14 cities") +
-    annotate("text", x = 2.45, y = y_city, hjust = 1, size = 3.3, colour = ROSE,
-             fontface = "bold", label = nice_city(highlight)) +
+    geom_point(data = ends |> filter(city == highlight),
+               aes(z_grdi, 100 * fit), colour = ROSE, size = 2.1) +
+    # Pooled: solid where every city has data, dashed where it is extrapolating.
+    geom_line(data = pooled |> filter(z_grdi <= z_common),
+              aes(z_grdi, 100 * fit), colour = INK, linewidth = 1.4) +
+    geom_line(data = pooled |> filter(z_grdi >= z_common),
+              aes(z_grdi, 100 * fit), colour = INK, linewidth = 1.1, linetype = "22") +
+    geom_point(aes(x_pool, end_pool), colour = INK, size = 2.1) +
+    annotate("text", x = z_common - 0.06, y = 105, hjust = 1, size = 2.9, colour = GREY,
+             label = "all 14 cities have tiles left of here") +
+    ggrepel::geom_text_repel(
+      data = bind_rows(lab, obstacles),
+      aes(x, y, label = nm, colour = col, fontface = fw),
+      hjust = 0, direction = "y", size = 2.6, seed = 7, na.rm = TRUE,
+      nudge_x = c(nudge, rep(0, nrow(obstacles))),
+      segment.size = 0.25, segment.colour = GREY, segment.alpha = 0.6,
+      min.segment.length = 0.2, box.padding = 0.14, point.padding = 0.12,
+      max.overlaps = Inf, xlim = c(NA, 3.55), ylim = c(-2, 103),
+      max.iter = 20000, max.time = 3) +
+    scale_colour_identity() +
+    scale_discrete_identity(aesthetics = "fontface") +
+    scale_x_continuous(breaks = seq(-2, 2, 1), limits = c(-2.55, 3.6)) +
     scale_y_continuous(limits = c(-2, 108), breaks = seq(0, 100, 25),
                        expand = c(0, 0), labels = function(v) paste0(v, "%")) +
     labs(title = "The same model, once per city",
-         subtitle = paste("Each thin line is one city. All hold population at that city's",
-                          "average, so only deprivation varies."),
+         subtitle = paste0(
+           "Each thin line is one city, with population held at that city's average.\n",
+           "The odds ratio is much the same everywhere — median city 0.13, pooled 0.12 — ",
+           "but what it does to a map depends on where the city starts."),
          x = "Deprivation, in standard deviations from the city's own average  →  more deprived",
          y = "Probability Meta publishes the tile",
          caption = paste0(
-           "14 cities with enough variation to estimate. Cities differ a lot in how much ",
-           "of their coverage gap survives equalising population:\nin some the curve stays ",
-           "near 100% (their gap is almost entirely about how few people live there), in ",
-           "others it collapses (their gap is about deprivation).\nThe pooled line is the ",
-           "average of that range, not a description of any one city.")) +
+           "14 cities with enough variation to estimate; a dot marks the most deprived tile ",
+           "each city actually has. Because those ranges differ, comparing line ends compares\n",
+           "cities at different deprivation levels. At +", sprintf("%.2f", z_common),
+           " SD, the last point where all 14 are present, ", n_high, " cities are still above ",
+           "90% and ", n_low, " are below 50%. The pooled line is a tile-weighted\naverage, so ",
+           "the largest cities pull it below the middle of the band; right of the rule it ",
+           "extrapolates every city past its own data and is dashed.")) +
     theme_ar()
-  save_fig(p, "F1b_city_curves_bridge.png", 8.6, 5.6)
+  save_fig(p, "F1b_city_curves_bridge.png", 9.8, 6.0)
 }
 
 # ------------------------------------------------------------ F1 dose-response
@@ -172,6 +237,9 @@ f1 <- function() {
     left_join(adj |> transmute(decile = grdi_decile, adj = 100 * pub_rate_adj),
               by = "decile")
 
+  lab_obs <- d |> filter(decile %in% c(1, 9, 10))
+  lab_adj <- d |> filter(decile %in% c(9, 10))     # decile 1 would overlap
+
   p <- ggplot(d, aes(decile)) +
     geom_ribbon(aes(ymin = lo, ymax = hi), fill = ROSE, alpha = 0.18) +
     geom_line(aes(y = pct, colour = "Observed"), linewidth = 1.15) +
@@ -182,6 +250,13 @@ f1 <- function() {
                size = 2.4, shape = 22, fill = "white", stroke = 0.8) +
     scale_colour_manual(values = c("Observed" = ROSE,
                                    "Population held fixed" = OLIVE)) +
+    # Label the ends so the audience can read "100% down to what?" without
+    # tracing back to the axis. Decile 1 gets one label because both lines sit
+    # on ~100% there and two would overlap.
+    geom_text(data = lab_obs, aes(decile, pct, label = paste0(round(pct), "%")),
+              colour = ROSE, fontface = "bold", size = 3.4, vjust = 2.1) +
+    geom_text(data = lab_adj, aes(decile, adj, label = paste0(round(adj), "%")),
+              colour = OLIVE, fontface = "bold", size = 3.4, vjust = -1.3) +
     scale_x_continuous(breaks = 1:10) +
     scale_y_continuous(limits = c(0, 104), expand = c(0, 0)) +
     labs(title = "Meta publishes almost every affluent tile and few deprived ones",

@@ -64,7 +64,7 @@ AOI rather than a Meta coverage decision. See `analysis/README.md` §2.
 - Main dependencies: geopandas, rasterio, rasterstats, pandas, numpy, scipy, statsmodels,
   libpysal, esda, matplotlib, pyarrow
 
-**R 4.0+** for figures: `install.packages(c("ggplot2","sf","dplyr","tidyr","patchwork","forcats","readr","scales","ragg"))`.
+**R 4.0+** for figures: `install.packages(c("ggplot2","sf","dplyr","tidyr","patchwork","forcats","readr","scales","ragg","ggrepel"))`.
 Figures use the `rcartocolor::ArmyRose` palette; see `analysis/R/theme_armyrose.R`.
 
 ## Running it
