@@ -223,13 +223,20 @@ def adjusted_dose_response(d: pd.DataFrame) -> pd.DataFrame:
 
     The raw gradient partly reflects that deprived tiles hold fewer people, and
     Meta's privacy threshold is a count threshold. The adjusted column is the
-    model-predicted publication probability from M4 with log WorldPop and its
+    model-predicted publication probability from M3 with log WorldPop and its
     square set to the overall mean, so only deprivation varies.
+
+    Settlement class is deliberately not in this model. Holding it at observed
+    values while calling the line "settlement type held fixed" would have been
+    wrong, and its "Urban centre" category is 100% published, which is the same
+    complete-separation problem that excludes four cities from the sample. It
+    changes the deprivation odds ratio by 0.002. Dropping it also makes this
+    curve agree with the per-city curves in 05_city_models.py, which use the
+    same specification.
     """
-    smod = pd.get_dummies(d["smod_class"], prefix="smod", drop_first=True).astype(float)
-    d = pd.concat([d.reset_index(drop=True), smod.reset_index(drop=True)], axis=1)
+    d = d.reset_index(drop=True).copy()
     d["z_log_wp2"] = d["z_log_wp"] ** 2
-    cols = ["z_poverty_mean", "z_log_wp", "z_log_wp2"] + list(smod.columns)
+    cols = ["z_poverty_mean", "z_log_wp", "z_log_wp2"]
     sub = d.dropna(subset=cols + ["grdi_decile"]).reset_index(drop=True)
     res, names = fit_logit(sub, cols)
 

@@ -99,11 +99,12 @@ python analysis/01_build_panel.py             # pooled tile panel
 python analysis/02_selection_models.py        # extensive margin + robustness ladder
 python analysis/03_two_margin_decomposition.py  # reconciles the null
 python analysis/04_operational_consequence.py   # blind spots, clustering, targeting
+python analysis/05_city_models.py             # per-city models (feeds F0b, F1b)
 python analysis/06_refhour_robustness.py      # baseline-hour check, and why not RWI
 python analysis/07_censoring_bounds.py        # bounds, imputation, Tobit, placebo
 python analysis/09_sensitivity.py             # floor, jackknife, MAUP, functional form
 python analysis/12_aoi_check.py               # suppression vs event-AOI edge
-Rscript analysis/10_figures_main.R            # F0, F0b, F1-F5
+Rscript analysis/10_figures_main.R            # F0, F0b, F1, F1b, F2-F5
 Rscript analysis/11_figures_robustness.R      # F6-F9
 ```
 

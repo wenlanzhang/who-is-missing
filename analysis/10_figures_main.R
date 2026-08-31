@@ -71,91 +71,95 @@ f0 <- function(country = "ZAF", city = "CapeTown") {
 }
 
 # ------------------------------------------------- F0b single-city fitted curve
-f0b <- function(country = "ZAF", city = "CapeTown") {
-  # The odds ratio is the statistically correct summary but a hard one to read in
-  # a talk. This is the same model expressed as a predicted probability: for a
-  # tile of average population, how likely is Meta to publish it at each level of
-  # deprivation? The observed decile rates are overlaid so the curve can be
-  # checked against the raw data rather than taken on trust.
-  p <- file.path("data/processed/city", country, city,
-                 "01b_coverage/independent_grid.gpkg")
-  if (!file.exists(p)) { cat("  ! missing ", p, "\n"); return(invisible()) }
+f0b <- function(city_id = "CapeTown") {
+  # All estimation happens in analysis/05_city_models.py; this only draws.
+  tiles <- rd("A5_city_tiles.csv")   |> filter(city == city_id)
+  curve <- rd("A5_city_curves.csv")  |> filter(city == city_id)
+  dec   <- rd("A5_city_deciles.csv") |> filter(city == city_id)
+  if (!nrow(curve)) { cat("  ! no model for ", city_id, "\n"); return(invisible()) }
 
-  g <- sf::st_read(p, quiet = TRUE) |> sf::st_drop_geometry() |>
-    filter(eligible == 1, !is.na(poverty_mean), worldpop_count > 0) |>
-    mutate(log_wp = log(worldpop_count),
-           z_grdi = as.numeric(scale(poverty_mean)),
-           z_lwp  = as.numeric(scale(log_wp)),
-           decile = ntile(poverty_mean, 10))
-
-  m <- glm(published ~ z_grdi + z_lwp, data = g, family = binomial())
-
-  # Cluster-robust covariance on zoom-10 quadkey blocks, matching the inference
-  # used everywhere else. Publication is spatially autocorrelated, so the naive
-  # glm interval is slightly too narrow.
-  g$blk10 <- substr(g$quadkey, 1, 10)
-  V <- if (requireNamespace("sandwich", quietly = TRUE)) {
-    sandwich::vcovCL(m, cluster = g$blk10)
-  } else vcov(m)
-
-  mu <- mean(g$poverty_mean); sdv <- sd(g$poverty_mean)
-  grid <- tibble::tibble(
-    poverty_mean = seq(min(g$poverty_mean), max(g$poverty_mean), length.out = 300)) |>
-    mutate(z_grdi = (poverty_mean - mu) / sdv,
-           z_lwp  = 0)                      # population held at the city average
-  Xn  <- model.matrix(~ z_grdi + z_lwp, data = grid)
-  eta <- as.vector(Xn %*% coef(m))
-  se  <- sqrt(rowSums((Xn %*% V) * Xn))
-  grid <- grid |> mutate(fit = plogis(eta),
-                         lo  = plogis(eta - 1.96 * se),
-                         hi  = plogis(eta + 1.96 * se))
-
-  # The model's prediction using each tile's *own* population. This is what the
-  # model actually says about the data, and it tracks the observed rates closely.
-  g$p_actual <- predict(m, type = "response")
-
-  obs <- g |> group_by(decile) |>
-    summarise(grdi = median(poverty_mean), rate = mean(published), .groups = "drop")
-
-  lim <- range(g$poverty_mean)
-  p_out <- ggplot() +
-    # every tile, as its raw 0/1 outcome
-    geom_jitter(data = g, aes(poverty_mean, 100 * published, colour = poverty_mean),
+  lim <- range(tiles$poverty_mean)
+  p <- ggplot() +
+    geom_jitter(data = tiles, aes(poverty_mean, 100 * published, colour = poverty_mean),
                 height = 3.2, width = 0, size = 0.7, alpha = 0.35) +
-    geom_ribbon(data = grid, aes(poverty_mean, ymin = 100 * lo, ymax = 100 * hi),
+    geom_ribbon(data = curve, aes(poverty_mean, ymin = 100 * lo, ymax = 100 * hi),
                 fill = OLIVE, alpha = 0.16) +
-    geom_smooth(data = g, aes(poverty_mean, 100 * p_actual), method = "loess",
-                span = 0.6, se = FALSE, colour = ROSE, linewidth = 0.9,
-                linetype = "22", formula = y ~ x) +
-    geom_line(data = grid, aes(poverty_mean, 100 * fit), colour = INK, linewidth = 1.1) +
-    geom_point(data = obs, aes(grdi, 100 * rate, fill = grdi), shape = 21,
-               size = 3.6, colour = "white", stroke = 0.7) +
+    geom_line(data = dec, aes(median_grdi, 100 * fit_actual), colour = ROSE,
+              linewidth = 0.9, linetype = "22") +
+    geom_line(data = curve, aes(poverty_mean, 100 * fit), colour = INK, linewidth = 1.1) +
+    geom_point(data = dec, aes(median_grdi, 100 * observed, fill = median_grdi),
+               shape = 21, size = 3.6, colour = "white", stroke = 0.7) +
     scale_colour_gradientn(colours = ARMY, limits = lim, guide = "none") +
     scale_fill_gradientn(colours = ARMY, limits = lim, guide = "none") +
     scale_y_continuous(limits = c(-8, 108), breaks = seq(0, 100, 25),
                        expand = c(0, 0), labels = function(v) paste0(v, "%")) +
-    # Placed where each band is sparse: almost no deprived tiles are published,
-    # and almost no affluent tiles are missing, so the corners are free.
     annotate("text", x = lim[2], y = 105, hjust = 1, size = 3.0, colour = GREY,
              label = "one faint dot = one tile Meta published") +
     annotate("text", x = lim[1], y = -5, hjust = 0, size = 3.0, colour = GREY,
              label = "one faint dot = one tile Meta did not publish") +
     labs(title = sprintf("%s: how likely is Meta to publish a neighbourhood?",
-                         nice_city(city)),
-         subtitle = paste("Solid = same population everywhere · dashed = each tile's own",
-                          "population · dots = observed rate per tenth"),
+                         nice_city(city_id)),
+         subtitle = paste("Solid = every area given the same population ·",
+                          "dashed = each area's real population · dots = observed"),
          x = "Deprivation (GRDI)  →  more deprived",
          y = "Probability Meta publishes the tile",
          caption = paste0(
-           "All ", nrow(g), " eligible tiles shown. Logistic fit on deprivation and log ",
-           "population; band is a 95% interval with errors clustered on ~39 km blocks.\n",
-           "The dashed line uses each tile's real population and tracks the observed rates. ",
-           "The solid line asks a different question — what if every\nneighbourhood had the ",
-           "city's average population? It sits higher because deprived tiles are also far ",
-           "sparser (median 28,238 residents in the least\ndeprived tenth, 13 in the most). ",
-           "That gap is how much of the coverage drop is explained by fewer people.")) +
+           "All ", nrow(tiles), " eligible tiles shown. Logistic model of publication on ",
+           "deprivation and log population (fitted in analysis/05_city_models.py);\n",
+           "band is a 95% interval with errors clustered on ~39 km blocks. The dashed line ",
+           "follows the real data. The solid line asks what would happen if\nevery ",
+           "neighbourhood held the city's average number of residents — it sits higher ",
+           "because deprived tiles are also far sparser.")) +
     theme_ar()
-  save_fig(p_out, "F0b_capetown_fitted_probability.png", 9.0, 5.8)
+  save_fig(p, "F0b_capetown_fitted_probability.png", 9.0, 5.8)
+}
+
+# ------------------------------------------- F1b one city -> all cities bridge
+f1b <- function(highlight = "CapeTown") {
+  # Same model per city as F0b, drawn on a common axis (deprivation in
+  # within-city standard deviations) so 14 cities can be compared, with the
+  # pooled fixed-effects model on top. This is the step between "one city" and
+  # "all cities": the same object, once per city.
+  curves <- rd("A5_city_curves.csv")
+  pooled <- rd("A5_pooled_curve.csv")
+
+  # Label each line near its right-hand end, pushed apart if they end close
+  # together so the two annotations never overlap.
+  end_pool <- 100 * pooled$fit[nrow(pooled)]
+  hl       <- curves |> filter(city == highlight) |> arrange(z_grdi)
+  end_city <- 100 * hl$fit[nrow(hl)]
+  gap      <- if (abs(end_pool - end_city) < 12) 12 else 6
+  y_pool   <- end_pool + gap
+  y_city   <- end_city - gap
+
+  p <- ggplot() +
+    geom_ribbon(data = pooled, aes(z_grdi, ymin = 100 * lo, ymax = 100 * hi),
+                fill = INK, alpha = 0.10) +
+    geom_line(data = curves |> filter(city != highlight),
+              aes(z_grdi, 100 * fit, group = city), colour = OLIVE_MID,
+              linewidth = 0.55, alpha = 0.75) +
+    geom_line(data = curves |> filter(city == highlight),
+              aes(z_grdi, 100 * fit), colour = ROSE, linewidth = 1.3) +
+    geom_line(data = pooled, aes(z_grdi, 100 * fit), colour = INK, linewidth = 1.4) +
+    annotate("text", x = 2.45, y = y_pool, hjust = 1, size = 3.3, colour = INK,
+             fontface = "bold", label = "pooled, 14 cities") +
+    annotate("text", x = 2.45, y = y_city, hjust = 1, size = 3.3, colour = ROSE,
+             fontface = "bold", label = nice_city(highlight)) +
+    scale_y_continuous(limits = c(-2, 108), breaks = seq(0, 100, 25),
+                       expand = c(0, 0), labels = function(v) paste0(v, "%")) +
+    labs(title = "The same model, once per city",
+         subtitle = paste("Each thin line is one city. All hold population at that city's",
+                          "average, so only deprivation varies."),
+         x = "Deprivation, in standard deviations from the city's own average  →  more deprived",
+         y = "Probability Meta publishes the tile",
+         caption = paste0(
+           "14 cities with enough variation to estimate. Cities differ a lot in how much ",
+           "of their coverage gap survives equalising population:\nin some the curve stays ",
+           "near 100% (their gap is almost entirely about how few people live there), in ",
+           "others it collapses (their gap is about deprivation).\nThe pooled line is the ",
+           "average of that range, not a description of any one city.")) +
+    theme_ar()
+  save_fig(p, "F1b_city_curves_bridge.png", 8.6, 5.6)
 }
 
 # ------------------------------------------------------------ F1 dose-response
@@ -172,12 +176,12 @@ f1 <- function() {
     geom_ribbon(aes(ymin = lo, ymax = hi), fill = ROSE, alpha = 0.18) +
     geom_line(aes(y = pct, colour = "Observed"), linewidth = 1.15) +
     geom_point(aes(y = pct, colour = "Observed"), size = 2.6) +
-    geom_line(aes(y = adj, colour = "Population and settlement type held fixed"),
+    geom_line(aes(y = adj, colour = "Population held fixed"),
               linewidth = 1.0, linetype = "22") +
-    geom_point(aes(y = adj, colour = "Population and settlement type held fixed"),
-               size = 2.1, shape = 15) +
+    geom_point(aes(y = adj, colour = "Population held fixed"),
+               size = 2.4, shape = 22, fill = "white", stroke = 0.8) +
     scale_colour_manual(values = c("Observed" = ROSE,
-                                   "Population and settlement type held fixed" = OLIVE)) +
+                                   "Population held fixed" = OLIVE)) +
     scale_x_continuous(breaks = 1:10) +
     scale_y_continuous(limits = c(0, 104), expand = c(0, 0)) +
     labs(title = "Meta publishes almost every affluent tile and few deprived ones",
@@ -311,5 +315,5 @@ f5 <- function(cities = list(c("ZAF", "CapeTown"), c("LKA", "Kandy"),
   save_fig(out, "F5_blind_spot_maps.png", 12.4, 5.0)
 }
 
-f0(); f0b(); f1(); f2(); f3(); f4(); f5()
+f0(); f0b(); f1(); f1b(); f2(); f3(); f4(); f5()
 cat("Done.\n")

@@ -9,11 +9,12 @@ python analysis/01_build_panel.py             # pooled tile panel -> analysis/pa
 python analysis/02_selection_models.py        # extensive margin + robustness ladder
 python analysis/03_two_margin_decomposition.py  # reconciles the null
 python analysis/04_operational_consequence.py   # blind spots, clustering, targeting
+python analysis/05_city_models.py             # per-city models (feeds F0b, F1b)
 python analysis/06_refhour_robustness.py      # baseline-hour check, and why not RWI
 python analysis/07_censoring_bounds.py        # bounds, imputation, Tobit, placebo
 python analysis/09_sensitivity.py             # floor, jackknife, MAUP, form
 python analysis/12_aoi_check.py               # suppression vs event-AOI edge
-Rscript analysis/10_figures_main.R            # F0, F0b, F1-F5
+Rscript analysis/10_figures_main.R            # F0, F0b, F1, F1b, F2-F5
 Rscript analysis/11_figures_robustness.R      # F6-F9
 ```
 
@@ -168,18 +169,35 @@ OR is per +1 SD of within-city GRDI.
 |---|---|---|---|---|
 | M1 | GRDI only | 0.023 | 0.013–0.039 | 2e-44 |
 | M2 | + log WorldPop | 0.092 | 0.058–0.147 | 1e-23 |
-| M3 | + log WorldPop² | 0.123 | 0.075–0.200 | 3e-17 |
-| M4 | + GHSL settlement class | **0.125** | 0.076–0.206 | 2e-16 |
+| **M3** | **+ log WorldPop²** | **0.123** | **0.075–0.200** | **3e-17** |
+| M4 | + GHSL settlement class | 0.125 | 0.076–0.206 | 2e-16 |
 | M7 | GRDI orthogonalised to density & settlement | 0.362 | 0.284–0.462 | 2e-16 |
 | SLX | total (own + neighbourhood) effect | 0.077 | 0.044–0.135 | <1e-9 |
 | LPM | linear probability, M2 spec | −8.3 pp | | 1e-3 |
 
-**Read M4 as:** a tile one SD more deprived than its city average has about **one-eighth the
-odds** of appearing in Meta's product, holding its population, population squared, and
-settlement type fixed.
+**M3 is the headline specification.** A tile one SD more deprived than its city average has
+about **one-eighth the odds** of appearing in Meta's product, holding its population and
+population squared fixed.
+
+Settlement class (M4) is reported as a robustness row rather than in the headline. It is
+jointly significant (χ²(3) = 33.5) but moves the deprivation odds ratio by 0.002, and its
+"Urban centre" category is 100% published — the same complete-separation problem that
+excludes four cities from the sample. Keeping a perfectly separated dummy while dropping
+perfectly separated cities would be inconsistent. Where settlement type does real work is
+§5.5(f), where the model is estimated *within* each class.
 
 **Dose-response (`F1`).** Meta publishes **100%** of tiles in the least deprived decile and
-**21%** in the most deprived. Holding population and settlement type fixed: **100% → 59%**.
+**21%** in the most deprived. Holding population fixed: **100% → 56%**.
+
+**`F1b` is the bridge from one city to all of them.** The same model fitted separately to
+each of the 14 cities, drawn on a common axis, with the pooled fixed-effects curve on top.
+It exists because the talk otherwise jumps from a single-city figure to a pooled estimate
+with no visible connection. It also shows something the pooled number hides: **cities differ
+enormously in how much of their gap survives equalising population.** In Mexico City, Puebla
+and Nairobi the equal-population curve stays near 100% — their coverage gap is almost
+entirely about how few people live in deprived tiles. In Cuenca, Guayaquil and Mombasa it
+collapses below 10% — theirs is about deprivation. Cape Town sits in between. The pooled
+line is the average of that range, not a description of any one city.
 
 **Every city agrees (`F2`).** 14/14 estimable cities have OR < 1 (sign test p = 6.1e-05);
 12 significant at 5%.
