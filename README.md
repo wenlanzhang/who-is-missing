@@ -103,7 +103,7 @@ python analysis/06_refhour_robustness.py      # baseline-hour check, and why not
 python analysis/07_censoring_bounds.py        # bounds, imputation, Tobit, placebo
 python analysis/09_sensitivity.py             # floor, jackknife, MAUP, functional form
 python analysis/12_aoi_check.py               # suppression vs event-AOI edge
-Rscript analysis/10_figures_main.R            # F0-F5
+Rscript analysis/10_figures_main.R            # F0, F0b, F1-F5
 Rscript analysis/11_figures_robustness.R      # F6-F9
 ```
 

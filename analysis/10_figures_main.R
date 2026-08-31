@@ -70,6 +70,63 @@ f0 <- function(country = "ZAF", city = "CapeTown") {
   save_fig(out, "F0_capetown_case_study.png", 12.6, 5.4)
 }
 
+# ------------------------------------------------- F0b single-city fitted curve
+f0b <- function(country = "ZAF", city = "CapeTown") {
+  # The odds ratio is the statistically correct summary but a hard one to read in
+  # a talk. This is the same model expressed as a predicted probability: for a
+  # tile of average population, how likely is Meta to publish it at each level of
+  # deprivation? The observed decile rates are overlaid so the curve can be
+  # checked against the raw data rather than taken on trust.
+  p <- file.path("data/processed/city", country, city,
+                 "01b_coverage/independent_grid.gpkg")
+  if (!file.exists(p)) { cat("  ! missing ", p, "\n"); return(invisible()) }
+
+  g <- sf::st_read(p, quiet = TRUE) |> sf::st_drop_geometry() |>
+    filter(eligible == 1, !is.na(poverty_mean), worldpop_count > 0) |>
+    mutate(log_wp = log(worldpop_count),
+           z_grdi = as.numeric(scale(poverty_mean)),
+           z_lwp  = as.numeric(scale(log_wp)),
+           decile = ntile(poverty_mean, 10))
+
+  m <- glm(published ~ z_grdi + z_lwp, data = g, family = binomial())
+
+  mu <- mean(g$poverty_mean); sdv <- sd(g$poverty_mean)
+  grid <- tibble::tibble(
+    poverty_mean = seq(min(g$poverty_mean), max(g$poverty_mean), length.out = 300)) |>
+    mutate(z_grdi = (poverty_mean - mu) / sdv,
+           z_lwp  = mean(g$z_lwp))          # population held at the city average
+  pr <- predict(m, newdata = grid, type = "link", se.fit = TRUE)
+  grid <- grid |> mutate(fit = plogis(pr$fit),
+                         lo  = plogis(pr$fit - 1.96 * pr$se.fit),
+                         hi  = plogis(pr$fit + 1.96 * pr$se.fit))
+
+  obs <- g |> group_by(decile) |>
+    summarise(grdi = median(poverty_mean), rate = mean(published), .groups = "drop")
+
+  lim <- range(g$poverty_mean)
+  p_out <- ggplot() +
+    geom_ribbon(data = grid, aes(poverty_mean, ymin = 100 * lo, ymax = 100 * hi),
+                fill = OLIVE, alpha = 0.16) +
+    geom_line(data = grid, aes(poverty_mean, 100 * fit), colour = INK, linewidth = 1.1) +
+    geom_point(data = obs, aes(grdi, 100 * rate, fill = grdi), shape = 21,
+               size = 3.4, colour = "white", stroke = 0.6) +
+    scale_fill_gradientn(colours = ARMY, limits = lim, guide = "none") +
+    scale_y_continuous(limits = c(-2, 104), expand = c(0, 0),
+                       labels = function(v) paste0(v, "%")) +
+    labs(title = sprintf("%s: how likely is Meta to publish a neighbourhood?",
+                         nice_city(city)),
+         subtitle = "Fitted probability for a tile of average population, with the observed decile rates overlaid",
+         x = "Deprivation (GRDI)  →  more deprived",
+         y = "Probability Meta publishes the tile",
+         caption = paste0(
+           "Logistic fit on ", nrow(g), " tiles, controlling for log population. ",
+           "Line = fitted probability holding population at the city average;\n",
+           "band = 95% interval; dots = the share actually published in each ",
+           "deprivation tenth, coloured by deprivation.")) +
+    theme_ar()
+  save_fig(p_out, "F0b_capetown_fitted_probability.png", 8.0, 5.2)
+}
+
 # ------------------------------------------------------------ F1 dose-response
 f1 <- function() {
   raw <- rd("A2_dose_response_grdi_decile.csv")
@@ -223,5 +280,5 @@ f5 <- function(cities = list(c("ZAF", "CapeTown"), c("LKA", "Kandy"),
   save_fig(out, "F5_blind_spot_maps.png", 12.4, 5.0)
 }
 
-f0(); f1(); f2(); f3(); f4(); f5()
+f0(); f0b(); f1(); f2(); f3(); f4(); f5()
 cat("Done.\n")

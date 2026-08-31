@@ -13,7 +13,7 @@ python analysis/06_refhour_robustness.py      # baseline-hour check, and why not
 python analysis/07_censoring_bounds.py        # bounds, imputation, Tobit, placebo
 python analysis/09_sensitivity.py             # floor, jackknife, MAUP, form
 python analysis/12_aoi_check.py               # suppression vs event-AOI edge
-Rscript analysis/10_figures_main.R            # F0-F5
+Rscript analysis/10_figures_main.R            # F0, F0b, F1-F5
 Rscript analysis/11_figures_robustness.R      # F6-F9
 ```
 
@@ -474,6 +474,13 @@ consequences. Equations are given in full in §2 and §4; the notes below are wh
 
 8. **`F0_capetown_case_study.png`** — full bleed. Same peripheral ring in rose in both maps.
    100% of deciles 1–3, 3% of decile 10; 231 of 690 tiles missing. Name the places.
+   **`F0b_capetown_fitted_probability.png`** is the same city as a fitted curve: the
+   probability Meta publishes a tile of *average population* across the deprivation range,
+   with the observed decile rates overlaid. Use it instead of quoting an odds ratio — it is
+   the same model, in units an audience can read. Note the dots sit below the line in the
+   middle deciles: the line holds population at the city average, while the real deprived
+   tiles are also sparser, so the raw drop is steeper than the population-adjusted one.
+   That gap between dots and line *is* the density channel, drawn.
 
 **All cities (S9–S11, ~3 min)**
 
