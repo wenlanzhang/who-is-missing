@@ -206,17 +206,17 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
-# Analysis tables — regenerate with analysis/02..08
+# Analysis tables — regenerate with analysis/02-09 and 12
 outputs/
 
-# Analysis figures — regenerate with analysis/05 and 08
+# Analysis figures — regenerate with analysis/10_figures_main.R and 11_figures_robustness.R
 figure/
 
 # Harmonised GPKGs (intermediate; regenerate with ./run)
 data/processed/
 data/baselines/
 
-# Pooled tile panel — regenerate with analysis/01_build_panel.py
+# Both pooled tile panels — regenerate with analysis/01_build_panel.py
 analysis/panel/
 
 # All source data. These carry their own licence terms (Meta PDC, WorldPop, GRDI,

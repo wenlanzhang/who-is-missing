@@ -23,9 +23,19 @@ The two share columns are what make the "null result" reproducible: the pipeline
 uses wp_share_pub, which redistributes the population of unpublished tiles across
 the published ones and so cannot express a coverage deficit.
 
+Two panels are written on every run, from a single pass over the grids:
+
+  tile_panel.parquet      the 18-city study sample  (02-07, 09 read this)
+  tile_panel_all.parquet  every city including the three excluded ones
+                          (09's out-of-sample check and 12's AOI check read this)
+
+They are built together deliberately. Every derived column is computed within
+city, so the study panel is exactly a row-subset of the full one — writing both
+here is what guarantees the two files can never be from different builds, which
+would silently invalidate the out-of-sample comparison in 09.
+
 Usage:
   python analysis/01_build_panel.py
-  python analysis/01_build_panel.py --include-out-of-sample
 """
 
 import argparse
@@ -43,6 +53,7 @@ import ghsl_utils  # noqa: E402
 import region_config  # noqa: E402
 
 PANEL = ROOT / "analysis" / "panel" / "tile_panel.parquet"
+PANEL_ALL = ROOT / "analysis" / "panel" / "tile_panel_all.parquet"
 SMOD_RASTER = ROOT / "data" / "raw" / "ghsl" / "GHS_SMOD_E2020_GLOBE_R2023A_4326_30ss_V2_0.tif"
 
 # Kept in config for provenance but excluded from the study sample.
@@ -63,16 +74,17 @@ OUT_OF_SAMPLE = {"GardenRoute", "Nakuru", "Kisumu"}
 
 
 def parse_args():
-    p = argparse.ArgumentParser(description="Build the pooled tile panel")
-    p.add_argument("--include-out-of-sample", action="store_true",
-                   help="Also include Nakuru and Garden Route (in_sample: false).")
+    p = argparse.ArgumentParser(description="Build the pooled tile panels")
     p.add_argument("--no-smod", action="store_true",
                    help="Skip the GHSL settlement-class join (faster; drops smod_class).")
-    p.add_argument("-o", "--out", type=Path, default=PANEL)
+    p.add_argument("-o", "--out", type=Path, default=PANEL,
+                   help="Study-sample panel (default analysis/panel/tile_panel.parquet).")
+    p.add_argument("--out-all", type=Path, default=PANEL_ALL,
+                   help="All-cities panel (default analysis/panel/tile_panel_all.parquet).")
     return p.parse_args()
 
 
-def load_grids(include_out_of_sample: bool) -> gpd.GeoDataFrame:
+def load_grids() -> gpd.GeoDataFrame:
     """Concatenate every per-city independent grid written by pipeline/01b."""
     pattern = "data/processed/city/*/*/01b_coverage/independent_grid.gpkg"
     paths = sorted(ROOT.glob(pattern))
@@ -85,14 +97,13 @@ def load_grids(include_out_of_sample: bool) -> gpd.GeoDataFrame:
     frames = []
     for path in paths:
         country, city = path.parts[-4], path.parts[-3]
-        if city in OUT_OF_SAMPLE and not include_out_of_sample:
-            continue
         grid = gpd.read_file(path)
         grid["country"] = country
         grid["city"] = city
         grid["region"] = f"{country}_{city}"
         frames.append(grid)
-        print(f"  {country}/{city:<18} {len(grid):>5} tiles")
+        mark = "  (out of sample)" if city in OUT_OF_SAMPLE else ""
+        print(f"  {country}/{city:<18} {len(grid):>5} tiles{mark}")
 
     panel = pd.concat(frames, ignore_index=True)
     return gpd.GeoDataFrame(panel, geometry="geometry", crs=frames[0].crs)
@@ -163,10 +174,21 @@ def add_derived(panel: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     return panel
 
 
+def summarise(out: pd.DataFrame, path: Path, label: str) -> None:
+    elig = out[out.in_eligible]
+    print(f"\nWrote {path}  ({label})")
+    print(f"  cities            {out.city.nunique()}")
+    print(f"  tiles (all)       {len(out):,}")
+    print(f"  tiles (eligible)  {len(elig):,}")
+    print(f"  published rate    {elig.published.mean():.3f}")
+    print(f"  WorldPop total    {elig.worldpop_count.sum():,.0f}")
+    print(f"  WorldPop unpublished {elig.loc[elig.published == 0, 'worldpop_count'].sum():,.0f}")
+
+
 def main():
     args = parse_args()
     print("Loading independent city grids...")
-    panel = load_grids(args.include_out_of_sample)
+    panel = load_grids()
 
     if not args.no_smod:
         print("Attaching GHSL settlement class...")
@@ -196,17 +218,20 @@ def main():
     ]
     out = pd.DataFrame(panel[[c for c in keep if c in panel.columns]])
 
-    args.out.parent.mkdir(parents=True, exist_ok=True)
-    out.to_parquet(args.out, index=False)
+    # Every derived column above is computed within city (z-scores, deciles,
+    # shares) or per row (blocks, area), so dropping whole cities is exactly a
+    # row-subset — the study panel is identical to what a separate in-sample-only
+    # build would produce. Writing both from one pass is what stops 09's
+    # out-of-sample comparison from silently contrasting two different builds.
+    study = out[~out.city.isin(OUT_OF_SAMPLE)].reset_index(drop=True)
 
-    elig = out[out.in_eligible]
-    print(f"\nWrote {args.out}")
-    print(f"  cities            {out.city.nunique()}")
-    print(f"  tiles (all)       {len(out):,}")
-    print(f"  tiles (eligible)  {len(elig):,}")
-    print(f"  published rate    {elig.published.mean():.3f}")
-    print(f"  WorldPop total    {elig.worldpop_count.sum():,.0f}")
-    print(f"  WorldPop unpublished {elig.loc[elig.published == 0, 'worldpop_count'].sum():,.0f}")
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    args.out_all.parent.mkdir(parents=True, exist_ok=True)
+    study.to_parquet(args.out, index=False)
+    out.to_parquet(args.out_all, index=False)
+
+    summarise(study, args.out, "study sample")
+    summarise(out, args.out_all, f"all cities, incl. {', '.join(sorted(OUT_OF_SAMPLE))}")
 
 
 if __name__ == "__main__":

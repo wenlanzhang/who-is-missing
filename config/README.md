@@ -7,7 +7,7 @@
 ## Usage
 
 ```bash
-# All selected cities in a country (19 cities: PHL, KEN, MEX, IDN, LKA, COL, ECU, ZAF)
+# All selected cities in a country (18 in-sample cities across PHL, KEN, MEX, IDN, LKA, COL, ECU, ZAF)
 ./run --region PHL
 ./run --region KEN
 ./run --region MEX
@@ -76,7 +76,10 @@
 
 ## Output layout
 
-`./run --region KEN` writes grids to `data/processed/city/KEN/{Nairobi,Mombasa,Kisumu}/` under `01/` and `01b_coverage/`.  
+`./run --region KEN` writes grids to `data/processed/city/KEN/{Nairobi,Mombasa,Kisumu}/` under `01/` and `01b_coverage/`. Nakuru is skipped because it is `in_sample: false`; add `--include-out-of-sample` to build it too.
+
+**Two different exclusions, in two different places.** `in_sample: false` in this file (Nakuru, Garden Route) controls what `./run` *builds*. `OUT_OF_SAMPLE` in `analysis/01_build_panel.py` controls what enters the *study panel*, and it additionally excludes **Kisumu** — which is therefore built by `./run --region KEN` but dropped from `tile_panel.parquet`. Kisumu is excluded on evidence rather than configuration (its absent tiles mark the edge of the published event AOI, not a coverage decision), so the reason lives next to the diagnostic that established it. See `analysis/README.md` §2.
+
 `./run --region MEX` runs `MEX_MexicoCity`, `MEX_Puebla`, and `MEX_Leon`. Same pattern for IDN, LKA, COL, ECU, ZAF.  
 Meta snapshot hour is Pacific time, chosen to sit near evening locally: **16** Kenya / South Africa; **8** Philippines / Indonesia / Sri Lanka; **0** Mexico / Colombia / Ecuador. Default baseline method is **n_baseline**.  
 Analysis tables and figures go to `outputs/analysis/` and `figure/analysis/`.

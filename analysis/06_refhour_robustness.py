@@ -144,11 +144,19 @@ def pooled_by_hour(panel: pd.DataFrame) -> pd.DataFrame:
     'designated' uses each country's chosen near-evening hour. For all five of
     these countries the only other built hour is h00, so 'alternate' and 'h00'
     would be the same regression; only the two distinct sets are reported.
+
+    The two rows are restricted to a COMMON set of cities. fit_extensive drops
+    cities whose publication does not vary, and which cities those are depends on
+    the hour: at the designated hour a city can be 100% published and drop out,
+    while at h00 it varies and stays in. Left unrestricted the comparison was
+    2,410 tiles in 8 cities against 2,489 in 9 — a difference in sample masquer-
+    ading as a difference in hour. Intersecting first makes the contrast about
+    the hour alone.
     """
     hours = available_hours()
     two_hour = [c for c, h in hours.items() if len(h) > 1]
-    rows = []
-    for label in ("designated", "alternate (h00)"):
+
+    def frame_for(label: str) -> pd.DataFrame:
         frames = []
         for country in two_hour:
             hrs = hours[country]
@@ -161,11 +169,29 @@ def pooled_by_hour(panel: pd.DataFrame) -> pd.DataFrame:
             s["published"] = s.quadkey.isin(pub).astype(int)
             s["hour_used"] = h
             frames.append(s)
-        d = pd.concat(frames, ignore_index=True)
+        return pd.concat(frames, ignore_index=True)
+
+    labels = ("designated", "alternate (h00)")
+    built = {lab: frame_for(lab) for lab in labels}
+
+    def estimable(d: pd.DataFrame) -> set:
+        d = d.dropna(subset=["z_poverty_mean", "z_log_wp"])
+        varies = d.groupby("city")["published"].nunique() > 1
+        return set(varies[varies].index)
+
+    common = set.intersection(*(estimable(d) for d in built.values()))
+    print(f"  common estimable cities across both hour sets: {len(common)} "
+          f"({', '.join(sorted(common))})")
+
+    rows = []
+    for label in labels:
+        d = built[label]
+        d = d[d.city.isin(common)]
         r = fit_extensive(d)
-        r.update(hour_set=label, countries=len(two_hour), C_c=d.published.mean())
+        r.update(hour_set=label, countries=d.country.nunique(),
+                 C_c=d.published.mean())
         rows.append(r)
-        print(f"  {label:<12} C_c={r['C_c']:.3f}  OR={r['OR']:.3f} "
+        print(f"  {label:<16} C_c={r['C_c']:.3f}  OR={r['OR']:.3f} "
               f"[{r['OR_lo']:.3f},{r['OR_hi']:.3f}]  p={r['p']:.2e}  "
               f"n={r['n']} in {r['n_cities']} cities")
     return pd.DataFrame(rows)[["hour_set", "countries", "n", "n_cities", "C_c",
@@ -192,12 +218,15 @@ def rwi_selection(panel: pd.DataFrame) -> pd.DataFrame:
         })
     if not rows:
         # The RWI CSVs live outside the repository. Without them this section is
-        # simply skipped rather than failing the whole script.
+        # skipped rather than failing the whole script — but returning None (not
+        # an empty frame) matters: main() must not write the empty result over a
+        # previously good A6_rwi_structural_selection.csv, which is F8's only
+        # input and cannot be rebuilt without the source files.
         print("  No RWI files found. Set RESIDENTIAL_DATA_ROOT (or data_root in\n"
               "  config/regions.json) to the directory holding "
-              f"{RWI_SUBDIR} to run this check.")
-        return pd.DataFrame(columns=["country", "n_eligible", "rwi_cov_published",
-                                     "rwi_cov_unpublished", "n_unpublished", "gap_pp"])
+              f"{RWI_SUBDIR} to run this check.\n"
+              "  Leaving any existing A6_rwi_structural_selection.csv untouched.")
+        return None
     out = pd.DataFrame(rows)
     out["gap_pp"] = 100 * (out.rwi_cov_published - out.rwi_cov_unpublished)
     return out.sort_values("gap_pp", ascending=False)
@@ -229,14 +258,16 @@ def main():
 
     print("\n=== Why RWI is not used: it is missing where the outcome is 0 ===")
     rwi = rwi_selection(panel)
-    rwi.to_csv(OUT / "A6_rwi_structural_selection.csv", index=False)
-    if len(rwi):
+    n_written = 3
+    if rwi is not None:
+        rwi.to_csv(OUT / "A6_rwi_structural_selection.csv", index=False)
+        n_written += 1
         print(rwi.to_string(index=False, float_format=lambda v: f"{v:.3f}"))
         print(f"\n  RWI covers {rwi.rwi_cov_published.mean():.1%} of published tiles but "
               f"only {rwi.rwi_cov_unpublished.mean():.1%} of unpublished ones "
               f"(unweighted mean).")
 
-    print(f"\nWrote 4 tables to {OUT}")
+    print(f"\nWrote {n_written} tables to {OUT}")
 
 
 if __name__ == "__main__":

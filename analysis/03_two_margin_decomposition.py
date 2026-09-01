@@ -261,12 +261,20 @@ def intensive_by_city(d: pd.DataFrame) -> pd.DataFrame:
     regression per city so the claim "mixed and centred on nothing" is checkable
     from this repository rather than from the earlier pipeline's deleted tables.
     """
+    # A cluster-robust variance needs enough clusters to be meaningful. Within a
+    # single city the zoom-10 blocks are few, and below this many the SE is not
+    # trustworthy however small it looks: Medan returns se=0.004 and p=0.0 off
+    # four clusters, which is a degenerate fit, not a precise one. Flagged rather
+    # than dropped, because the per-city spread is the point of this table.
+    MIN_CLUSTERS = 5
+
     rows = []
     for city, g in d.groupby("city"):
         pub = g[g.published == 1].copy()
         if len(pub) < 30:
-            rows.append({"city": city, "n": len(pub), "tau": np.nan,
-                         "se": np.nan, "p": np.nan, "note": "too few published tiles"})
+            rows.append({"city": city, "n": len(pub), "n_clusters": pub.blk10.nunique(),
+                         "tau": np.nan, "se": np.nan, "p": np.nan,
+                         "note": "too few published tiles"})
             continue
         pub["meta_sh"] = pub.meta_pub / pub.meta_pub.sum()
         pub["wp_sh"] = pub.worldpop_count / pub.worldpop_count.sum()
@@ -275,17 +283,39 @@ def intensive_by_city(d: pd.DataFrame) -> pd.DataFrame:
         X = sm.add_constant(pub[["z_poverty_mean"]].astype(float))
         r = sm.OLS(y.to_numpy(), X.to_numpy()).fit(
             cov_type="cluster", cov_kwds={"groups": pub.blk10.to_numpy()})
-        rows.append({"city": city, "n": len(pub), "tau": r.params[1],
-                     "se": r.bse[1], "p": r.pvalues[1], "note": ""})
+        n_cl = pub.blk10.nunique()
+        rows.append({"city": city, "n": len(pub), "n_clusters": n_cl,
+                     "tau": r.params[1], "se": r.bse[1], "p": r.pvalues[1],
+                     "note": ("few clusters - SE unreliable" if n_cl < MIN_CLUSTERS else "")})
     out = pd.DataFrame(rows)
     e = out.dropna(subset=["tau"])
-    neg = int(((e.tau < 0) & (e.p < 0.05)).sum())
-    pos = int(((e.tau > 0) & (e.p < 0.05)).sum())
-    null = int((e.p >= 0.05).sum())
-    print(f"  {len(e)} cities estimable: {neg} significantly negative, "
-          f"{pos} significantly positive, {null} null")
+
+    def tally(t):
+        return (int(((t.tau < 0) & (t.p < 0.05)).sum()),
+                int(((t.tau > 0) & (t.p < 0.05)).sum()),
+                int((t.p >= 0.05).sum()))
+
+    ok = e[e.n_clusters >= MIN_CLUSTERS]
+    flagged = sorted(e.loc[e.n_clusters < MIN_CLUSTERS, "city"])
+    n_all, p_all, z_all = tally(e)
+    n_ok, p_ok, z_ok = tally(ok)
+    # Both tallies are printed on purpose. The all-cities one is what the write-up
+    # has historically quoted; the restricted one shows how much of it survives
+    # taking the cluster-robust SEs seriously. They differ a lot, and the honest
+    # summary is the range across cities, not either significance count.
+    print(f"  {len(e)} cities estimable")
+    print(f"    all {len(e)}:                    {n_all} sig. negative, "
+          f"{p_all} sig. positive, {z_all} null")
+    print(f"    the {len(ok)} with >= {MIN_CLUSTERS} clusters: {n_ok} sig. negative, "
+          f"{p_ok} sig. positive, {z_ok} null")
     print(f"  tau ranges {e.tau.min():+.3f} to {e.tau.max():+.3f}; "
-          f"median {e.tau.median():+.3f}")
+          f"median {e.tau.median():+.3f} (all {len(e)} cities)")
+    if flagged:
+        print(f"  ! {len(flagged)} cities have < {MIN_CLUSTERS} zoom-10 clusters, so their "
+              f"SEs are not trustworthy\n    and their p-values should not be read as "
+              f"significance: {', '.join(flagged)}")
+    print("  Either way the pooled estimand is a flat zero and the per-city spread is "
+          "wide.\n  That is the point of this table; the significance counts are not.")
     return out.sort_values("tau")
 
 

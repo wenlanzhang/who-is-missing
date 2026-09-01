@@ -30,13 +30,16 @@ results. To rerun it you need the source data described under [Data](#data), the
 
 ```
 pipeline/    two steps that build the grids (01 harmonise, 01b independent grid)
-analysis/    7 Python analysis scripts + 2 R figure scripts, plus the write-up
+analysis/    9 Python analysis scripts + 2 R figure scripts, plus the write-up
 config/      regions.json — per-city paths, clip shapes, baseline hours
 data_prep/   one-off helpers (build Meta baseline medians, extract boundaries)
 data/        raw inputs, harmonised grids, Meta baselines  (gitignored)
 outputs/     tables   -> outputs/analysis/                 (gitignored)
 figure/      figures  -> figure/analysis/                  (gitignored)
 ```
+
+The analysis scripts are numbered 01–12 with gaps (10/11 are the R figure scripts, and the
+remaining gaps are where earlier steps were removed).
 
 ## Study sample
 
@@ -88,28 +91,37 @@ possible at all.
 ./run --all                 # every selected city in every country
 ./run --one KEN_Nairobi     # a single city
 ./run --region KEN --ref-hour 8
+./run --all --include-out-of-sample   # also Nakuru and Garden Route
 ```
+
+`--all` skips the cities marked `in_sample: false`. The out-of-sample robustness row in
+§5.5(c) needs them, so a full reproduction from scratch wants the last form.
 
 Both artefacts are already built for all cities, so you can skip straight to step 2.
 
 ### 2. Run the analysis
 
 ```bash
-python analysis/01_build_panel.py             # pooled tile panel
+python analysis/01_build_panel.py             # both pooled tile panels
 python analysis/02_selection_models.py        # extensive margin + robustness ladder
 python analysis/03_two_margin_decomposition.py  # reconciles the null
 python analysis/04_operational_consequence.py   # blind spots, clustering, targeting
 python analysis/05_city_models.py             # per-city models (feeds F0b, F1b)
 python analysis/06_refhour_robustness.py      # baseline-hour check, and why not RWI
 python analysis/07_censoring_bounds.py        # bounds, imputation, Tobit, placebo
+python analysis/08_unreported_burden.py       # people / km2 / places unreported
 python analysis/09_sensitivity.py             # floor, jackknife, MAUP, functional form
 python analysis/12_aoi_check.py               # suppression vs event-AOI edge
-Rscript analysis/10_figures_main.R            # F0, F0b, F1, F1b, F2-F5
+Rscript analysis/10_figures_main.R            # F0, F0b, F1, F1b, F2-F5, F10
 Rscript analysis/11_figures_robustness.R      # F6-F9
 ```
 
 Tables land in `outputs/analysis/`, figures in `figure/analysis/`. The whole chain runs in
 about a minute from the cached grids.
+
+Steps `06` and `12` also read the raw Meta PDC and RWI files under `data_root`. If those are
+not present, `06` skips its RWI section (leaving any existing table alone) and `12` stops
+with an explanatory message; everything else still runs.
 
 ## Data
 

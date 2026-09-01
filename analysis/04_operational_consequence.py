@@ -46,6 +46,13 @@ OUT = ROOT / "outputs" / "analysis"
 
 KNN_K = 8
 
+# esda.Moran draws its reference distribution from numpy's global RNG and takes
+# no seed argument, so an unseeded run gives a different p_sim every time — the
+# statistic is stable but the permutation p-value moves (General Santos flipped
+# between 0.001 and 0.005 across runs). Seeding makes A4_spatial_clustering.csv
+# reproducible; it does not change any Moran's I.
+SEED = 20260829
+
 
 def load():
     d = pd.read_parquet(PANEL)
@@ -91,6 +98,7 @@ def spatial_clustering(d: pd.DataFrame) -> pd.DataFrame:
     from libpysal.weights import KNN
     from esda.moran import Moran
 
+    np.random.seed(SEED)
     rows = []
     for city, g in d.groupby("city"):
         if len(g) <= KNN_K or g.published.nunique() < 2:

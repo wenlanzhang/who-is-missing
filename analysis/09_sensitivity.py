@@ -12,10 +12,11 @@ A9 — Five sensitivity checks a discussant is likely to ask for.
   2. JACKKNIFE          Leave one city out, then one country out. Guards against
                         the pooled estimate resting on the two Ecuadorian cities,
                         which have the sparsest coverage in the sample.
-  3. OUT-OF-SAMPLE      Add the excluded sparse cities back in. They were dropped
-                        for sparse coverage; including them should strengthen the
-                        result, which is the point - it shows the exclusion is not
-                        cherry-picking.
+  3. OUT-OF-SAMPLE      Add the three excluded cities back in. Two were dropped
+                        for sparse coverage and one (Kisumu) for AOI truncation,
+                        so this is a "the exclusions were not cherry-picking"
+                        check rather than a better estimate - see the docstring
+                        on out_of_sample() for why the two reasons differ.
   4. SPATIAL SCALE      Re-run at zoom 13 and 12 (coarser tiles). A modifiable
                         areal unit check: if the gradient only exists at zoom 14
                         it is a small-tile artefact.
@@ -117,17 +118,25 @@ def jackknife(d: pd.DataFrame, by: str) -> pd.DataFrame:
 
 
 def out_of_sample() -> pd.DataFrame:
-    """Nakuru and Garden Route, excluded from the study sample for sparse coverage."""
+    """Add the three excluded cities back.
+
+    Two were excluded for sparse coverage (Nakuru, Garden Route) and one for a
+    different reason: Kisumu's absent tiles mark the edge of the published event
+    AOI, not a coverage decision (see analysis/12_aoi_check.py). Calling all
+    three "the sparse cities" was wrong, and it matters — adding an AOI-truncated
+    city back inflates the odds ratio for a reason that has nothing to do with
+    deprivation, so this row is not a clean robustness check. Read it as "the
+    exclusions were not cherry-picking", not as a better estimate.
+    """
     if not PANEL_ALL.exists():
-        print(f"  ! {PANEL_ALL} missing. Build it with:")
-        print("    python analysis/01_build_panel.py --include-out-of-sample "
-              "-o analysis/panel/tile_panel_all.parquet")
+        print(f"  ! {PANEL_ALL} missing. It is written by:")
+        print("    python analysis/01_build_panel.py")
         return pd.DataFrame()
     a = load(PANEL_ALL)
     d = load(PANEL)
     rows = []
     for label, s in [(f"study sample ({d.city.nunique()} cities)", d),
-                     (f"+ the excluded sparse cities ({a.city.nunique()} cities)", a)]:
+                     (f"+ the 3 excluded cities ({a.city.nunique()} cities)", a)]:
         r = logit_or(s)
         r.update(sample=label, pub_rate=float(s.published.mean()))
         rows.append(r)
@@ -222,18 +231,31 @@ def within_settlement_class(d: pd.DataFrame) -> pd.DataFrame:
     tests whether the gradient is an artefact of mixing urban and rural tiles.
     """
     rows = []
-    for cls in ["Urban centre", "Town / semi-dense", "Rural"]:
+    # Iterate over the classes actually present rather than a hard-coded three.
+    # A fixed list silently dropped the "Water" tiles: a SMOD centroid can land
+    # on water while WorldPop still places people in the tile, so they are in the
+    # estimation sample and have to be accounted for somewhere.
+    classes = [c for c in d.smod_class.dropna().unique()]
+    order = {"Urban centre": 0, "Town / semi-dense": 1, "Rural": 2, "Water": 3}
+    for cls in sorted(classes, key=lambda c: order.get(c, 9)):
         s = d[d.smod_class == cls]
+        # n_stratum / pub_stratum describe the class itself. logit_or's own n is
+        # the estimable subset after dropping cities with no within-class
+        # variation, and reads as 0 for a fully published class — which looks
+        # like "no tiles" when it means "805 tiles, every one of them published".
+        n_stratum, pub_stratum = len(s), float(s.published.mean()) if len(s) else np.nan
         for lab, cols in [("no density control", ["z_poverty_mean"]), ("+ log WP", BASE)]:
             r = logit_or(s, cols=cols)
-            r.update(smod_class=cls, spec=lab)
+            r.update(smod_class=cls, spec=lab, n_stratum=n_stratum,
+                     pub_rate_stratum=pub_stratum)
             rows.append(r)
             status = (f"OR={r['OR']:.3f} [{r['OR_lo']:.3f},{r['OR_hi']:.3f}] p={r['p']:.1e}"
                       if np.isfinite(r["OR"]) else
-                      "not estimable (almost all tiles published)")
-            print(f"  {cls:<20} {lab:<20} n={r['n']:<5} {status}")
-    return pd.DataFrame(rows)[["smod_class", "spec", "n", "n_cities",
-                               "OR", "OR_lo", "OR_hi", "p"]]
+                      f"not estimable ({pub_stratum:.1%} of its tiles published)")
+            print(f"  {cls:<20} {lab:<20} stratum n={n_stratum:<5} "
+                  f"estimable n={r['n']:<5} {status}")
+    return pd.DataFrame(rows)[["smod_class", "spec", "n_stratum", "pub_rate_stratum",
+                               "n", "n_cities", "OR", "OR_lo", "OR_hi", "p"]]
 
 
 def main():
@@ -254,7 +276,7 @@ def main():
     jn = jackknife(d, "country")
     jn.to_csv(OUT / "A9_jackknife_country.csv", index=False)
 
-    print("\n=== 3. Adding the two excluded cities back ===")
+    print("\n=== 3. Adding the three excluded cities back ===")
     oos = out_of_sample()
     if len(oos):
         oos.to_csv(OUT / "A9_out_of_sample.csv", index=False)

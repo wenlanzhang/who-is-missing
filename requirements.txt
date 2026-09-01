@@ -1,16 +1,13 @@
 # Script dependencies
 geopandas>=0.14
-mercantile>=1.2  # quadkey-to-geometry for Meta_base scripts
+mercantile>=1.2  # quadkey <-> tile geometry, used throughout the pipeline
 rasterio>=1.4
-rasterstats>=0.19
+rasterstats>=0.19  # zonal stats for WorldPop / GRDI / GHSL
 numpy>=1.20
 pandas>=1.0
-matplotlib>=3.0
+pyarrow>=12.0  # parquet engine for analysis/panel/*.parquet
 scipy>=1.7
-statsmodels>=0.13  # for regression with controls, VIF
-libpysal>=4.0
+statsmodels>=0.13  # logit / OLS / GLM with cluster-robust errors
+libpysal>=4.0  # KNN spatial weights
 esda>=2.0  # Moran's I (spatial autocorrelation)
-spreg>=1.2  # spatial regression (SLM, SEM)
-contextily>=1.4  # basemap tiles for residual maps (Sentinel-2, Esri, OSM)
-xyzservices>=2023.0  # tile providers for contextily
 osmnx>=1.9  # optional; OSM city boundaries (--clip-source osm). Nominatim is used if missing.

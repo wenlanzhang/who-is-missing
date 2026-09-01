@@ -122,6 +122,14 @@ def main():
                 if len(lost) else np.nan,
             })
 
+    if not rows:
+        raise SystemExit(
+            "No PDC extracts could be read, so the AOI check cannot run.\n"
+            f"  data_root is currently: {regions.get('data_root')}\n"
+            "  It must point at the directory holding Meta_Event/Pop/*.zip.\n"
+            "  Set RESIDENTIAL_DATA_ROOT, or fix data_root in config/regions.json.\n"
+            "  (Existing outputs/analysis/A10_aoi_diagnostic.csv left untouched.)")
+
     out = pd.DataFrame(rows).sort_values("median_wp_never_in_aoi", ascending=False)
     out["verdict"] = np.where(
         out.median_wp_never_in_aoi > SUSPICIOUS_MEDIAN_WP,
@@ -139,6 +147,20 @@ def main():
     print(f"\n  {len(flagged)} city/cities flagged as AOI-truncated: "
           f"{', '.join(flagged.city) if len(flagged) else 'none'}")
     print("  Flagged cities belong in OUT_OF_SAMPLE in analysis/01_build_panel.py.")
+
+    # SUSPICIOUS_MEDIAN_WP is a judgement call, so show how close the decision
+    # was rather than leaving the reader to trust the constant. The cities just
+    # below the line are the ones a discussant will ask about.
+    near = out[(out.never_in_aoi > 0)
+               & (out.median_wp_never_in_aoi <= SUSPICIOUS_MEDIAN_WP)
+               ].nlargest(3, "median_wp_never_in_aoi")
+    print(f"\n  Sensitivity of the {SUSPICIOUS_MEDIAN_WP:,}-person cut. Nearest cities below it:")
+    for _, r in near.iterrows():
+        print(f"    {r.city:<18} median WP {r.median_wp_never_in_aoi:>6,.0f} "
+              f"({r.pct_never_in_aoi:.0f}% of tiles never in AOI)")
+    print("  A lower cut would also flag these. Note which of them are already out of\n"
+          "  sample for other reasons, and re-read analysis/README.md section 5.5(c)\n"
+          "  before using them as an 'add the excluded cities back' robustness check.")
 
     out.to_csv(OUT / "A10_aoi_diagnostic.csv", index=False)
     print(f"\nWrote {OUT / 'A10_aoi_diagnostic.csv'}")

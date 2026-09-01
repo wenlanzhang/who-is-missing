@@ -77,9 +77,15 @@ f7 <- function() {
   if (!is.null(tob)) a <- a +
     geom_hline(yintercept = tob$tau[1], colour = ROSE_MID, linetype = "13",
                linewidth = 0.9)
+  # The Tobit is worth drawing because it falls inside the bounds, but the
+  # optimiser does not always report convergence and the figure must say so
+  # rather than presenting it as a settled point estimate.
+  tob_note <- if (!is.null(tob) && isFALSE(tob$converged[1]))
+    "dotted = Tobit (optimiser did not converge — indicative only)" else
+    "dotted = Tobit estimate"
   a <- a +
     labs(title = "Filling the gaps does not identify anything",
-         subtitle = "rose diamond = random fill U(0,10); dotted = Tobit estimate",
+         subtitle = paste("rose diamond = random fill U(0,10);", tob_note),
          x = "Value assumed for each censored cell  (the truth is somewhere in 0–10)",
          y = "Intensive-margin τ") +
     theme_ar()
@@ -156,8 +162,11 @@ f9 <- function() {
                     OR, OR_lo, OR_hi, is_main = FALSE),
     wn |> transmute(lab = paste0("drop any one country (worst): ", dropped),
                     OR, OR_lo, OR_hi, is_main = FALSE),
+    # Not "the sparse cities": one of the three (Kisumu) is excluded for AOI
+    # truncation, which is a different and stronger reason. See
+    # out_of_sample() in analysis/09_sensitivity.py.
     oos |> slice_tail(n = 1) |>
-      transmute(lab = "+ the excluded sparse cities", OR, OR_lo, OR_hi, is_main = FALSE),
+      transmute(lab = "+ the 3 excluded cities", OR, OR_lo, OR_hi, is_main = FALSE),
     ff |> filter(form != "linear z-score (main spec)") |>
       transmute(lab = paste0("deprivation as ", form), OR, OR_lo, OR_hi, is_main = FALSE)
   ) |>

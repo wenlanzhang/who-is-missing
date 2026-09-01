@@ -31,7 +31,7 @@ Outputs
   outputs/analysis/A7_placebo_permutation.csv
 
 Usage:
-  python analysis/07_censoring_bounds.py [--draws 500]
+  python analysis/07_censoring_bounds.py [--draws 2000]
 """
 
 import argparse
@@ -56,8 +56,10 @@ SEED = 20260829
 
 def parse_args():
     p = argparse.ArgumentParser(description="Censoring bounds, imputation, placebo")
-    p.add_argument("--draws", type=int, default=500,
-                   help="Permutation draws for the placebo test (default 500).")
+    # 2,000 is the number quoted in analysis/README.md §5.4. Keep the two in step:
+    # the empirical p-value floor is 1/draws, so changing this changes the result.
+    p.add_argument("--draws", type=int, default=2000,
+                   help="Permutation draws for the placebo test (default 2000).")
     return p.parse_args()
 
 
@@ -188,6 +190,13 @@ def tobit(d: pd.DataFrame) -> pd.DataFrame:
     print("  ! SE is from the BFGS inverse Hessian and is NOT cluster-robust. Given the\n"
           "    spatial autocorrelation in publication it is certainly too small; treat the\n"
           "    point estimate as informative and the p-value as an upper bound on precision.")
+    if not res.success:
+        # Reported rather than swallowed: the estimate sits comfortably inside
+        # the bounds in section 1, which is the reason it is still worth quoting,
+        # but "the optimiser did not declare success" has to travel with it.
+        print(f"  ! BFGS did NOT report convergence ({res.message.strip()}).\n"
+              "    Quote this as a supporting interior point only, never as a headline\n"
+              "    estimate, and always alongside the bounds it falls inside.")
     return pd.DataFrame([{"model": "Left-censored (Tobit) on log(meta/worldpop)",
                           "n": len(o), "n_censored": int((~o).sum()),
                           "tau": tau, "se": se, "p": p, "converged": bool(res.success),

@@ -1,5 +1,5 @@
 {
-  "data_root": "../PhD_UCL_Data",
+  "data_root": "/Users/wenlanzhang/Downloads/PhD_UCL/Data",
   "poverty_source": "grdi",
   "poverty_grdi": "data/raw/povmap-grdi-v1-10.tif",
   "clip_source": "local",

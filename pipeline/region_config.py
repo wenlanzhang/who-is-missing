@@ -296,10 +296,6 @@ def get_aligned_parquet(footprint: str) -> Path:
     return _footprint_parquet(footprint, "_aligned.parquet")
 
 
-def get_geographies_parquet(footprint: str) -> Path:
-    return _footprint_parquet(footprint, "_aligned_geographies.parquet")
-
-
 def _footprint_parquet(footprint: str, suffix: str) -> Path:
     """Prefer data/processed/footprints/; fall back to a legacy file at processed root."""
     new = PROJECT_ROOT / "data" / "processed" / "footprints" / f"{footprint}{suffix}"
@@ -314,15 +310,6 @@ def get_footprint_output_dir(footprint: str, step: str) -> Path:
     return PROJECT_ROOT / "outputs" / "footprints" / footprint / step
 
 
-def require_footprint(code: str) -> str:
-    """Country ISO3 with a configured event footprint (PHL, KEN, …)."""
-    code = reject_legacy_phi(str(code or "").strip())
-    available = list_footprints()
-    if code not in available:
-        raise ValueError(f"Unknown footprint {code!r}. Available: {available}")
-    return code
-
-
 def add_footprint_arg(parser) -> None:
     """Attach --footprint COUNTRY to an analysis script parser."""
     parser.add_argument(
@@ -332,57 +319,6 @@ def add_footprint_arg(parser) -> None:
         help="Event-footprint ISO3 (PHL, KEN, MEX, IDN, LKA, COL, ECU, ZAF). "
         "Writes CSVs/figures under outputs/figure/footprints/{CODE}/, not city folders.",
     )
-
-
-def footprint_csv_dir(code: str, step: str | None = None) -> Path:
-    p = PROJECT_ROOT / "outputs" / "footprints" / require_footprint(code)
-    return p / step if step else p
-
-
-def footprint_figure_dir(code: str, step: str | None = None) -> Path:
-    p = PROJECT_ROOT / "figure" / "footprints" / require_footprint(code)
-    return p / step if step else p
-
-
-def footprint_geo_dir(code: str, step: str | None = None) -> Path:
-    p = PROJECT_ROOT / "data" / "processed" / "footprints" / require_footprint(code)
-    return p / step if step else p
-
-
-def footprint_step_paths(code: str, step: str) -> "StepPaths":
-    paths = StepPaths(require_footprint(code), step, product="footprint")
-    paths.mkdir()
-    return paths
-
-
-def footprint_harmonise_input(code: str) -> Path:
-    """First existing 01/geographies vector for footprint analysis (GPKG preferred)."""
-    code = require_footprint(code)
-    candidates = [
-        get_footprint_output_dir(code, "geographies") / "aligned_with_geographies.gpkg",
-        get_footprint_output_dir(code, "01") / "harmonised_meta_worldpop.gpkg",
-        footprint_geo_dir(code, "01") / "harmonised_meta_worldpop.gpkg",
-        get_geographies_parquet(code),
-        get_aligned_parquet(code),
-    ]
-    for path in candidates:
-        if path is not None and Path(path).exists():
-            return Path(path)
-    raise FileNotFoundError(
-        f"No footprint 01/geographies file for {code}. "
-        f"Run: ./run --footprint {code}"
-    )
-
-
-def product_from_artifact_path(path: Path | str | None) -> str | None:
-    if path is None:
-        return None
-    parts = Path(path).resolve().parts
-    if "footprints" in parts:
-        return "footprint"
-    if "city" in parts:
-        return "city"
-    return None
 
 
 def get_meta_baseline_path(cfg: dict, code: str, ref_hour=None, baseline_method=None) -> Path:
@@ -504,26 +440,9 @@ _COUNTRY_LABEL = {
     "ZAF": "South Africa",
 }
 
-# Pink–green armyrose (same as residual maps). Cream skipped for country fills.
-ARMYROSE = (
-    "#798234",
-    "#A3AD62",
-    "#D0D3A2",
-    "#FDFBE4",
-    "#F0C6C3",
-    "#DF91A3",
-    "#D46780",
-)
-ARMYROSE_COUNTRY = {
-    "Kenya": ARMYROSE[0],
-    "Philippines": ARMYROSE[6],
-    "Mexico": ARMYROSE[1],
-    "Indonesia": ARMYROSE[5],
-    "Sri Lanka": ARMYROSE[2],
-    "Colombia": ARMYROSE[4],
-    "Ecuador": "#5F6E28",
-    "South Africa": "#A33A58",
-}
+# The ArmyRose palette now lives in analysis/R/theme_armyrose.R, which is the only
+# place that draws anything. It was duplicated here for the retired Python figure
+# steps.
 
 
 def country_display_name(code: str) -> str:
@@ -571,28 +490,6 @@ def find_artifact(region: str, step: str, filename: str) -> Path | None:
     return None
 
 
-def find_footprint_artifact(code: str, step: str, filename: str) -> Path | None:
-    """Look under outputs/figure/data/processed/footprints/{CODE}/{step}/."""
-    code = require_footprint(code)
-    ext = Path(filename).suffix.lower()
-    if ext in _GEO_EXTS:
-        candidates = [
-            footprint_geo_dir(code, step) / filename,
-            get_footprint_output_dir(code, step) / filename,
-        ]
-        if step == "01" and filename == "harmonised_meta_worldpop.gpkg":
-            geo = get_footprint_output_dir(code, "geographies") / "aligned_with_geographies.gpkg"
-            candidates.append(geo)
-    elif ext in _IMAGE_EXTS:
-        candidates = [footprint_figure_dir(code, step) / filename]
-    else:
-        candidates = [footprint_csv_dir(code, step) / filename]
-    for path in candidates:
-        if path is not None and path.exists():
-            return path
-    return None
-
-
 def baseline_path(region: str, hour: int, method: str | None = None) -> Path:
     """Shared Meta baseline GPKG for a country (optional _n_baseline / _shift tag)."""
     country, _ = layout_parts(region)
@@ -600,20 +497,6 @@ def baseline_path(region: str, hour: int, method: str | None = None) -> Path:
     if method in ("n_baseline", "shift"):
         name = f"{name}_{method}"
     return PROJECT_ROOT / "data" / "baselines" / country / f"{name}.gpkg"
-
-
-def crisis_median_path(code: str, hour: int) -> Path:
-    """Country-level cache of median n_crisis at the reference hour (shared by cities)."""
-    country = country_prefix(code)
-    return PROJECT_ROOT / "data" / "baselines" / country / f"fb_crisis_median_h{int(hour):02d}.csv"
-
-
-def crisis_snapshots_path(code: str, hour: int) -> Path:
-    """Country-level cache of per-day n_crisis at the reference hour."""
-    country = country_prefix(code)
-    return (
-        PROJECT_ROOT / "data" / "baselines" / country / f"fb_crisis_snapshots_h{int(hour):02d}.parquet"
-    )
 
 
 class StepPaths:
@@ -692,45 +575,6 @@ def region_from_artifact_path(path: Path | str | None) -> str | None:
     return None
 
 
-def resolve_step_paths(
-    region: str | None,
-    step: str,
-    output_dir: Path | None = None,
-    input_path: Path | str | None = None,
-    footprint: str | None = None,
-) -> Path | StepPaths:
-    """Prefer --footprint or --region, else infer from input path, else ``output_dir/step``."""
-    if region and footprint:
-        raise ValueError("Use --region (city) or --footprint (event AOI), not both.")
-    if footprint:
-        return footprint_step_paths(footprint, step)
-    inferred_product = product_from_artifact_path(input_path)
-    code = region or region_from_artifact_path(input_path)
-    if inferred_product == "footprint" and code:
-        return footprint_step_paths(code, step)
-    if code:
-        if region:
-            code = require_city_region(code)
-        return step_paths(code, step)
-    d = Path(output_dir or (PROJECT_ROOT / "outputs")) / step
-    d.mkdir(parents=True, exist_ok=True)
-    return d
-
-
-def get_output_dir(region: str, step: str) -> Path:
-    """CSV directory for a pipeline step: outputs/city/{country}/{city}/{step}."""
-    return csv_dir(region, step)
-
-
-def get_input_path(region: str, step: str, filename: str) -> Path:
-    """Input path for a step (GPKGs live under data/processed)."""
-    prev_step = {"02": "01", "04": "02", "03a": "02", "03b": "02", "03c": "02", "03d": "02", "03e": "02", "03f": "02"}
-    in_step = prev_step.get(step, "01")
-    ext = Path(filename).suffix.lower()
-    base = geo_dir(region, in_step) if ext in _GEO_EXTS else csv_dir(region, in_step)
-    return base / filename
-
-
 def list_regions() -> list:
     """List available region codes (cities and event extracts)."""
     return [k for k in load_regions().keys() if k not in GLOBAL_KEYS]
@@ -776,17 +620,6 @@ def list_cities(country: str | None = None, *, in_sample_only: bool = True) -> l
             continue
         out.append(k)
     return out
-
-
-def list_event_region(country: str) -> str | None:
-    """Unclipped extract code for a country, or None (PHL/KEN/MEX have cities only)."""
-    country = reject_legacy_phi(country)
-    regions = load_regions()
-    if country in GLOBAL_KEYS or country not in regions:
-        return None
-    if is_event_region(country, regions[country]):
-        return country
-    return None
 
 
 def expand_region_to_list(region_or_prefix: str, *, event: bool = False) -> list:

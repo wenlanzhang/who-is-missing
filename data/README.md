@@ -30,10 +30,14 @@ WorldPop file URL pattern:
 |------|--------|
 | `raw/worldpop/` | Country rasters used by the pipeline (see [`raw/worldpop_log.csv`](raw/worldpop_log.csv)) |
 | [`raw/worldpop_log.csv`](raw/worldpop_log.csv) | Log of all PDC events and WorldPop rasters. `meta_event_id` is Meta’s crisis ID (same on every CSV in that extract; different events have different IDs). `year` is the WorldPop raster year; `worldpop_present` is yes/no for `data/raw/worldpop/`; `in_pipeline` is whether the region is already in `config/regions.json` |
-| `raw/ghsl/` | **GHS-SMOD** 2020 (R2023A, 30 arc-sec raster). Degree of Urbanisation: urban / suburban / rural per pixel. More relevant for stratifying quadkeys. [JRC download](https://human-settlement.emergency.copernicus.eu/download.php?ds=smod). Not in the main pipeline yet |
+| `raw/ghsl/` | **GHS-SMOD** 2020 (R2023A, 30 arc-sec raster). Degree of Urbanisation: urban centre / town / rural / water per pixel. **In the pipeline**: joined to every tile by `analysis/01_build_panel.py` as `smod_class`, and used as the urbanicity control in model M4 and the stratification in `analysis/README.md` §5.5(f). [JRC download](https://human-settlement.emergency.copernicus.eu/download.php?ds=smod) |
 | `raw/GHS_STAT_UCDB2015MT_GLOBE_R2019A/` | **GHS-UCDB** 2015 (R2019A v1.2). Urban Centre Database: one polygon per city (~13k centres), city-level attributes. Less relevant here (city list, not a within-city grid). [JRC dataset](http://data.europa.eu/89h/53473144-b88c-44bc-b4a3-4583ed1f547e). Not in the main pipeline |
 | `processed/` | Harmonised GPKGs from `./run` (`city/{COUNTRY}/{city}/`) plus footprint aligned parquet under `processed/footprints/` |
 | `baselines/` | Meta baseline GPKGs built from PDC zips (`{COUNTRY}/fb_baseline_median_h{00\|08\|16}.gpkg`) |
 
 
-`data_root` is `/Users/wenlanzhang/Downloads/PhD_UCL/Data` in `config/regions.json`. Override with `RESIDENTIAL_DATA_ROOT` without editing the file.
+`data_root` is `/Users/wenlanzhang/Downloads/PhD_UCL/Data` in `config/regions.json`. It is an
+absolute, machine-specific path — override it with the `RESIDENTIAL_DATA_ROOT` environment
+variable rather than editing the file. Only `poverty` (the RWI CSVs) and `pdc_raw_dir` (the
+Meta event zips) resolve against it; WorldPop, GRDI and GHSL live under `data/` in the
+project. Analysis steps `06` and `12` are the only ones that need it.

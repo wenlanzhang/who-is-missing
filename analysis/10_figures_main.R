@@ -123,6 +123,14 @@ f1b <- function(highlight = "CapeTown") {
   curves <- rd("A5_city_curves.csv")
   pooled <- rd("A5_pooled_curve.csv")
 
+  # Read the odds ratios rather than hardcoding them in the subtitle. They were
+  # written out by hand and would silently go stale the next time the sample or
+  # the specification moves.
+  ors      <- rd("A2_extensive_margin_by_city.csv") |> filter(!is.na(OR))
+  or_city  <- median(ors$OR)
+  or_pool  <- rd("A2_extensive_margin_ladder.csv") |>
+    filter(grepl("^M3", model)) |> pull(OR)
+
   # Every city's curve is drawn only over the deprivation range it actually has
   # tiles in, so the lines stop at different places. z_common is the last point
   # where all 14 are still present. To its right cities leave the comparison one
@@ -209,10 +217,11 @@ f1b <- function(highlight = "CapeTown") {
     scale_y_continuous(limits = c(-2, 108), breaks = seq(0, 100, 25),
                        expand = c(0, 0), labels = function(v) paste0(v, "%")) +
     labs(title = "The same model, once per city",
-         subtitle = paste0(
+         subtitle = sprintf(paste0(
            "Each thin line is one city, with population held at that city's average.\n",
-           "The odds ratio is much the same everywhere — median city 0.13, pooled 0.12 — ",
+           "The odds ratio is much the same everywhere — median city %.2f, pooled %.2f — ",
            "but what it does to a map depends on where the city starts."),
+           or_city, or_pool),
          x = "Deprivation, in standard deviations from the city's own average  →  more deprived",
          y = "Probability Meta publishes the tile",
          caption = paste0(
@@ -229,13 +238,17 @@ f1b <- function(highlight = "CapeTown") {
 
 # ------------------------------------------------------------ F1 dose-response
 f1 <- function() {
-  raw <- rd("A2_dose_response_grdi_decile.csv")
+  # Both lines come from the *same* table, which is the 14-city estimation
+  # sample. Taking the observed line from A2_dose_response_grdi_decile.csv
+  # instead would draw it on all 18 cities (4,999 tiles) against a fitted line
+  # on 4,700 — two different samples on one pair of axes.
   adj <- rd("A2_dose_response_adjusted.csv")
-  d <- raw |>
-    transmute(decile = grdi_decile, pct = 100 * pub_rate,
-              lo = 100 * (pub_rate - 1.96 * se), hi = 100 * (pub_rate + 1.96 * se)) |>
-    left_join(adj |> transmute(decile = grdi_decile, adj = 100 * pub_rate_adj),
-              by = "decile")
+  n_tiles <- sum(adj$n_tiles)
+  d <- adj |>
+    transmute(decile = grdi_decile, pct = 100 * pub_rate_raw,
+              lo = 100 * (pub_rate_raw - 1.96 * se_raw),
+              hi = 100 * (pub_rate_raw + 1.96 * se_raw),
+              adj = 100 * pub_rate_adj)
 
   lab_obs <- d |> filter(decile %in% c(1, 9, 10))
   lab_adj <- d |> filter(decile %in% c(9, 10))     # decile 1 would overlap
@@ -263,7 +276,10 @@ f1 <- function() {
          subtitle = "Deciles are formed within each city, so no cross-city difference drives the gradient",
          x = "Within-city deprivation decile (GRDI)  →  more deprived",
          y = "% of tiles with a Meta baseline value",
-         caption = "18 cities, 8 countries. Ribbon is the 95% interval on the observed rate.") +
+         caption = sprintf(paste("Both lines on the same %s tiles in 14 cities (the four cities publishing",
+                                 "100%% of tiles are not estimable).\nRibbon is the 95%% interval on the",
+                                 "observed rate."),
+                           format(n_tiles, big.mark = ","))) +
     theme_ar()
   save_fig(p, "F1_publication_by_deprivation_decile.png", 8.0, 5.0)
 }
@@ -390,5 +406,82 @@ f5 <- function(cities = list(c("ZAF", "CapeTown"), c("LKA", "Kandy"),
   save_fig(out, "F5_blind_spot_maps.png", 12.4, 5.0)
 }
 
-f0(); f0b(); f1(); f1b(); f2(); f3(); f4(); f5()
+# ------------------------------------------------- F10 the unreported burden
+f10 <- function() {
+  # Two panels answering "how many people are missing?" honestly. The left panel
+  # exists to stop the pooled 0.5% being quoted alone: places and land are
+  # missing at ~36% throughout, while the *people* share only takes off in the
+  # deprived deciles. The right panel is the operational version of the same
+  # fact, city by city.
+  dec <- rd("A8_unreported_by_decile.csv")
+  cty <- rd("A8_unreported_by_city.csv")
+  hd  <- rd("A8_unreported_headline.csv")
+  pooled_pop <- hd$pct_pop_unreported[hd$scope == "All eligible tiles"]
+
+  # Land is deliberately not drawn. Within a city, zoom-14 tiles are near-equal
+  # area, so % of tiles and % of km2 differ by under a point at every decile
+  # (35.8% vs 36.2% pooled) and the two lines sit on top of each other. Plotting
+  # both implied two independent facts where there is one. The km2 total goes in
+  # the caption instead.
+  long <- dec |>
+    transmute(decile = grdi_decile,
+              `Tiles (places)` = pct_tiles_unreported,
+              `People living in them` = pct_pop_unreported) |>
+    pivot_longer(-decile, names_to = "burden", values_to = "pct") |>
+    mutate(burden = factor(burden, levels = c("Tiles (places)", "People living in them")))
+
+  ends <- long |> filter(decile == 10)
+
+  a <- ggplot(long, aes(decile, pct, colour = burden)) +
+    geom_hline(yintercept = pooled_pop, colour = GREY, linetype = "22") +
+    annotate("text", x = 1, y = pooled_pop + 4, hjust = 0, size = 2.9, colour = GREY,
+             label = sprintf("all people, pooled: %.1f%%", pooled_pop)) +
+    geom_line(linewidth = 1.1) +
+    geom_point(size = 2.3) +
+    geom_text(data = ends, aes(label = sprintf("%.0f%%", pct)),
+              hjust = -0.35, size = 3.3, fontface = "bold", show.legend = FALSE) +
+    scale_colour_manual(values = c(`Tiles (places)` = OLIVE,
+                                   `People living in them` = ROSE)) +
+    scale_x_continuous(breaks = 1:10, limits = c(1, 10.9)) +
+    scale_y_continuous(limits = c(0, 100), expand = c(0, 0)) +
+    labs(title = "Missing tiles and missing people, by deprivation",
+         subtitle = "Share of each within-city deprivation decile that Meta never publishes",
+         x = "Within-city deprivation decile  →  more deprived",
+         y = "% unreported", colour = NULL) +
+    theme_ar()
+
+  cc <- cty |>
+    filter(pct_pop_unreported_top > 0) |>
+    mutate(city = nice_city(city)) |>
+    arrange(pct_pop_unreported_top) |>
+    mutate(city = fct_inorder(city))
+
+  b <- ggplot(cc, aes(pct_pop_unreported_top, city)) +
+    geom_segment(aes(x = 0, xend = pct_pop_unreported_top, yend = city),
+                 colour = RULE, linewidth = 0.9) +
+    geom_point(colour = ROSE, size = 3) +
+    geom_text(aes(label = sprintf("%.0f%%", pct_pop_unreported_top)),
+              hjust = -0.45, size = 2.9, colour = GREY) +
+    scale_x_continuous(limits = c(0, 108), expand = c(0, 0)) +
+    labs(title = "Residents unreported in the most deprived 20% of tiles",
+         subtitle = "% of the people living there who have no Meta value",
+         x = NULL, y = NULL) +
+    theme_ar()
+
+  out <- (a | b) + plot_layout(widths = c(1.25, 1)) +
+    plot_annotation(
+      title = "Where Meta's missing tiles are, and who lives in them",
+      caption = paste0(
+        "18 cities, 4,999 eligible tiles (10,106 km² of the 27,897 km² mapped have no Meta ",
+        "value). Missing land tracks missing tiles almost exactly — 36.2% against 35.8% — so ",
+        "only tiles are drawn.\nLeft: both burdens rise with deprivation, but the people line ",
+        "sits far below because the missing tiles are sparse (25 vs 2,907 people/km²). That ",
+        "density gap, not good coverage, is why the\npooled figure is 0.5%. Right: the four ",
+        "cities publishing 100% of their tiles are omitted. WorldPop is the population ",
+        "reference throughout."),
+      theme = theme_ar())
+  save_fig(out, "F10_unreported_burden.png", 12.4, 5.4)
+}
+
+f0(); f0b(); f1(); f1b(); f2(); f3(); f4(); f5(); f10()
 cat("Done.\n")

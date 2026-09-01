@@ -263,10 +263,20 @@ def adjusted_dose_response(d: pd.DataFrame) -> pd.DataFrame:
         median_grdi=("poverty_mean", "median"),
         median_wp=("worldpop_count", "median"),
     ).reset_index()
+    # Both lines in F1 must be drawn from this table, not one from here and one
+    # from dose_response(). That function runs on all 18 cities; this one runs on
+    # the 14-city estimation sample, so plotting them together compared an
+    # observed rate and a fitted rate on different samples (4,999 vs 4,700
+    # tiles). pub_rate_raw is the observed rate on *this* sample, and se is its
+    # binomial standard error, so the figure can be internally consistent.
+    g["se_raw"] = np.sqrt(g.pub_rate_raw * (1 - g.pub_rate_raw) / g.n_tiles)
     print("\n  decile  raw    adjusted  median_GRDI  median_WP")
     for _, r in g.iterrows():
         print(f"    {int(r.grdi_decile):>2}    {r.pub_rate_raw:.3f}   {r.pub_rate_adj:.3f}"
               f"     {r.median_grdi:6.2f}  {r.median_wp:9.0f}")
+    print(f"  (estimation sample: {len(sub):,} tiles in {sub.city.nunique()} cities; "
+          f"D1 {g.pub_rate_raw.iloc[0]:.0%} -> D10 {g.pub_rate_raw.iloc[-1]:.0%} raw, "
+          f"{g.pub_rate_adj.iloc[0]:.0%} -> {g.pub_rate_adj.iloc[-1]:.0%} adjusted)")
     return g
 
 
